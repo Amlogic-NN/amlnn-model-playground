@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2024–2025 Amlogic, Inc. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include <iostream>
 #include <vector>
 #include <filesystem>
@@ -19,43 +35,87 @@ static void hwc_to_chw(const cv::Mat& src, float* dst) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 3) { std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir>\n"; return 0; }
+    if (argc < 3) {
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir>\n";
+        return 0;
+    }
 
     aml_config cfg{};
-    cfg.typeSize = sizeof(cfg); cfg.modelType = ADLA_LOADABLE; cfg.nbgType = NN_ADLA_FILE; cfg.path = argv[1];
+    cfg.typeSize = sizeof(cfg);
+    cfg.modelType = ADLA_LOADABLE;
+    cfg.nbgType = NN_ADLA_FILE;
+    cfg.path = argv[1];
     void* ctx = aml_module_create(&cfg);
+    if (!ctx) {
+        std::cerr << "Failed to create aml_module\n";
+        return -1;
+    }
+
     auto priors = generate_priors();
     size_t num_priors = priors.size();
     std::vector<float> chw_buffer(kInputW * kInputH * 3);
 
-    fs::create_directory("retinaface_result");
+    const std::string out_dir = "retinaface_result";
+    fs::create_directory(out_dir);
 
+    std::vector<fs::path> image_paths;
     for (auto& it : fs::directory_iterator(argv[2])) {
-        cv::Mat img = cv::imread(it.path().string());
+        std::string ext = it.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext == ".jpg" || ext == ".png" || ext == ".jpeg" || ext == ".bmp") {
+            image_paths.push_back(it.path());
+        }
+    }
+    std::sort(image_paths.begin(), image_paths.end());
+
+    int total = image_paths.size();
+    if (total == 0) {
+        std::cout << "No images found in " << argv[2] << "\n";
+        aml_module_destroy(ctx);
+        return 0;
+    }
+
+    for (int i = 0; i < total; ++i) {
+        const auto& path = image_paths[i];
+        const std::string filename = path.filename().string();
+
+        std::cout << "============================================================\n";
+        std::cout << "Processing image " << (i + 1) << "/" << total << ": " << filename << "\n";
+        std::cout << "============================================================\n";
+
+        cv::Mat img = cv::imread(path.string());
         if (img.empty()) continue;
 
         float scale = std::min((float)kInputW / img.cols, (float)kInputH / img.rows);
         int nw = img.cols * scale, nh = img.rows * scale;
         int px = (kInputW - nw) / 2, py = (kInputH - nh) / 2;
         cv::Mat res, canvas = cv::Mat::zeros(kInputH, kInputW, CV_32FC3);
-        cv::resize(img, res, {nw, nh}); res.convertTo(res, CV_32FC3);
+        cv::resize(img, res, {nw, nh});
+        res.convertTo(res, CV_32FC3);
         res.copyTo(canvas(cv::Rect(px, py, nw, nh)));
         hwc_to_chw(canvas, chw_buffer.data());
 
-        nn_input in{}; in.typeSize = sizeof(in); in.input_type = BINARY_RAW_DATA;
-        in.input = (unsigned char*)chw_buffer.data(); in.size = chw_buffer.size() * 4;
-        in.info.valid = 1; in.info.input_format = AML_INPUT_MODEL_NCHW; in.info.input_data_type = AML_INPUT_FP32;
+        nn_input in{};
+        in.typeSize = sizeof(in);
+        in.input_type = BINARY_RAW_DATA;
+        in.input = (unsigned char*)chw_buffer.data();
+        in.size = chw_buffer.size() * 4;
+        in.info.valid = 1;
+        in.info.input_format = AML_INPUT_MODEL_NCHW;
+        in.info.input_data_type = AML_INPUT_FP32;
         aml_module_input_set(ctx, &in);
 
-        aml_output_config_t outcfg{}; outcfg.typeSize = sizeof(outcfg); outcfg.format = AML_OUTDATA_FLOAT32;
+        aml_output_config_t outcfg{};
+        outcfg.typeSize = sizeof(outcfg);
+        outcfg.format = AML_OUTDATA_FLOAT32;
         nn_output* out = (nn_output*)aml_module_output_get(ctx, outcfg);
         if (!out) continue;
 
         float *loc = nullptr, *conf = nullptr, *landm = nullptr;
-        for (int i = 0; i < out->num; i++) {
-            if (out->out[i].size == num_priors * 4 * 4) loc = (float*)out->out[i].buf;
-            else if (out->out[i].size == num_priors * 2 * 4) conf = (float*)out->out[i].buf;
-            else if (out->out[i].size == num_priors * 10 * 4) landm = (float*)out->out[i].buf;
+        for (int j = 0; j < out->num; j++) {
+            if (out->out[j].size == num_priors * 4 * 4) loc = (float*)out->out[j].buf;
+            else if (out->out[j].size == num_priors * 2 * 4) conf = (float*)out->out[j].buf;
+            else if (out->out[j].size == num_priors * 10 * 4) landm = (float*)out->out[j].buf;
         }
         if (!loc || !conf || !landm) continue;
 
@@ -64,11 +124,11 @@ int main(int argc, char** argv) {
         std::vector<std::array<float, 10>> lms;
         std::vector<float> scores_vec;
 
-        for (size_t i = 0; i < num_priors; i++) {
-            float sc = is_planar ? conf[num_priors + i] : conf[i * 2 + 1];
+        for (size_t j = 0; j < num_priors; j++) {
+            float sc = is_planar ? conf[num_priors + j] : conf[j * 2 + 1];
             if (sc > 0.5f) {
-                boxes.push_back(decode_box(loc, i, num_priors, is_planar, priors[i]));
-                lms.push_back(decode_landm(landm, i, num_priors, is_planar, priors[i]));
+                boxes.push_back(decode_box(loc, j, num_priors, is_planar, priors[j]));
+                lms.push_back(decode_landm(landm, j, num_priors, is_planar, priors[j]));
                 scores_vec.push_back(sc);
             }
         }
@@ -83,7 +143,8 @@ int main(int argc, char** argv) {
 
             char score_text[16];
             std::snprintf(score_text, sizeof(score_text), "%.2f", scores_vec[k]);
-            cv::putText(img, score_text, {x1, std::max(y1 - 5, 5)}, cv::FONT_HERSHEY_SIMPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
+            cv::putText(img, score_text, {x1, std::max(y1 - 5, 5)}, 
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
 
             auto& lm = lms[k];
             for (int j = 0; j < 5; j++) {
@@ -92,8 +153,14 @@ int main(int argc, char** argv) {
                 cv::circle(img, {lx, ly}, 2, {0, 0, 255}, -1); 
             }
         }
-        cv::imwrite("retinaface_result/" + it.path().filename().string(), img);
-        std::cout << "Detected: " << it.path().filename() << " (" << keep.size() << " faces)\n";
+
+        std::string save_path = out_dir + "/" + filename;
+        cv::imwrite(save_path, img);
+        
+        std::cout << "    Detected " << keep.size() << " faces\n";
+        std::cout << "    Result saved to: " << save_path << "\n\n";
     }
-    aml_module_destroy(ctx); return 0;
+
+    aml_module_destroy(ctx);
+    return 0;
 }

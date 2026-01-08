@@ -62,8 +62,6 @@ int main(int argc, char** argv) {
     }
 
     // 3. Preprocess
-    auto start_time = std::chrono::high_resolution_clock::now();
-
     auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
 
     // Quantize to int8 (model expects quantized input)
@@ -88,6 +86,7 @@ int main(int argc, char** argv) {
     outconfig.typeSize = sizeof(aml_output_config_t);
     outconfig.format = AML_OUTDATA_FLOAT32;
 
+    auto start_time = std::chrono::high_resolution_clock::now();
     nn_output* outdata = (nn_output*)aml_module_output_get(context, outconfig);
     if (!outdata) {
         std::cerr << "Failed to run network." << std::endl;
@@ -103,8 +102,8 @@ int main(int argc, char** argv) {
     const int channels = 144;  // 64 DFL + 80 classes
     
     std::vector<Detection> detections = postprocess(
-        std::make_tuple(outbuf0, std::make_tuple(MODEL_INPUT_HEIGHT / 16, MODEL_INPUT_WIDTH / 16, channels), 16),
-        std::make_tuple(outbuf1, std::make_tuple(MODEL_INPUT_HEIGHT / 8, MODEL_INPUT_WIDTH / 8, channels), 8),
+        std::make_tuple(outbuf0, std::make_tuple(MODEL_INPUT_HEIGHT / 8, MODEL_INPUT_WIDTH / 8, channels), 8),
+        std::make_tuple(outbuf1, std::make_tuple(MODEL_INPUT_HEIGHT / 16, MODEL_INPUT_WIDTH / 16, channels), 16),
         std::make_tuple(outbuf2, std::make_tuple(MODEL_INPUT_HEIGHT / 32, MODEL_INPUT_WIDTH / 32, channels), 32),
         std::make_tuple(preprocessed, scale, pad),
         SCORE_THRESHOLD,

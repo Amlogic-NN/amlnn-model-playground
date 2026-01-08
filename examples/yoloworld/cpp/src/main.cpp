@@ -91,7 +91,6 @@ int main(int argc, char** argv) {
     int num_classes = CLASS_NAMES.size();
     int channels = 87; 
     
-    // Using standard stride logic assuming standard YOLOv8/World export
     std::vector<Detection> detections = postprocess(
         std::make_tuple(outbuf0, std::make_tuple(MODEL_INPUT_HEIGHT / 8, MODEL_INPUT_WIDTH / 8, channels), 8),
         std::make_tuple(outbuf1, std::make_tuple(MODEL_INPUT_HEIGHT / 16, MODEL_INPUT_WIDTH / 16, channels), 16),

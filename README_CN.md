@@ -1,7 +1,5 @@
 [简体中文](README_CN.md) | [English](README.md)
 
-![Banner](assets/poster.jpeg)
-
 # amlnn-model-playground
 
 # 简介
@@ -14,7 +12,7 @@
 
 # 依赖项
 
-- **amlnn-model-playground** 中的模型转换功能目前依赖于 Amlogic 提供的模型转换工具 **`adla-toolkit-binary-x.x.x.x`**，当前版本请联系您的销售代表获取该工具。
+- **amlnn-model-playground** 中的模型转换功能目前依赖于 Amlogic 提供的模型转换工具 **`adla-toolkit-binary-x.x.x.x`**，当前默认使用本工程的客户均已获取该工具。下一版本我们将通过 GitHub Release 公开发布该模型转换工具，计划于 2026 年第一季度（2026Q1）正式发布。
 - **Android编译**依赖NDK工具链，当前建议使用**r25c**版本，下载链接:https://github.com/android/ndk/wiki/Unsupported-Downloads
 - **Linux编译**依赖工具链:**gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf** ,下载链接：https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-a/downloads/
 
