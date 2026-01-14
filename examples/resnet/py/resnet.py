@@ -52,8 +52,8 @@ def postprocess_topk(logits, labels, k=5):
 def main():
     parser = argparse.ArgumentParser(description="Classification AMLNNLite Demo")
 
-    parser.add_argument('--board-work-path', default='/data/nn', help='Work path on board')
-    parser.add_argument('--model-path', required=True, help='Path to .adla or .tflite model')
+    parser.add_argument('--board-work-path', default='/data/local/tmp', help='Work path on board')
+    parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     parser.add_argument('--labels', required=True, help='Path to synset_words.txt or labels.txt')
     parser.add_argument('--run-cycles', type=int, default=1, help='Number of inference cycles')

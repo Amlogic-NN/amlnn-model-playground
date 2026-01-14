@@ -93,8 +93,8 @@ def postprocess(outputs, scale, pad, strides=[32,16,8], conf_threshold=0.25, iou
 
 def main():
     parser = argparse.ArgumentParser(description="YOLOV11 AMLNNLite Demo")
-    parser.add_argument('--board-work-path', default='/data/nn', help='Work path on board')
-    parser.add_argument('-m', '--model-path', required=True, help='Path to .adla or .tflite model')
+    parser.add_argument('--board-work-path', default='/data/local/tmp', help='Work path on board')
+    parser.add_argument('-m', '--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     parser.add_argument('--run-cycles', type=int, default=1, help='Inference cycles for profiling')
     parser.add_argument('--loglevel', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], help='Log level')
@@ -110,7 +110,7 @@ def main():
     amlnn.init()
 
     image_files = []
-    for ext in ["*.jpg", "*.jpeg", "*.png"]:
+    for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
     image_files.sort()

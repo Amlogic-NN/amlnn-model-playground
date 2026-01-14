@@ -55,7 +55,8 @@ int main(int argc, char** argv) {
     size_t num_priors = priors.size();
     std::vector<float> chw_buffer(kInputW * kInputH * 3);
 
-    const std::string out_dir = "retinaface_result";
+    std::string model_stem = fs::path(argv[1]).stem().string();
+    const std::string out_dir = model_stem + "_result";
     fs::create_directory(out_dir);
 
     std::vector<fs::path> image_paths;

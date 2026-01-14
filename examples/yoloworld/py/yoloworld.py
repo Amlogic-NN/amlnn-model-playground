@@ -390,7 +390,6 @@ Examples:
         traceback.print_exc()
         return 1
     
-    # Use try-finally to ensure resources are released
     try:
         # Find all image files in the specified directory
         image_dir = args.image_dir
@@ -493,7 +492,6 @@ Examples:
             amlnn.visualize()
             print("Visualization charts saved.")
     finally:
-        # Always release resources
         if amlnn is not None:
             print("\nReleasing resources...")
             amlnn.uninit()
