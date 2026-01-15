@@ -456,7 +456,7 @@ Examples:
                     conf_threshold=args.conf_threshold, 
                     iou_threshold=args.nms_threshold,
                     num_classes=NUM_CLASSES,
-                    reverse=1  # YOLOWorld format
+                    reverse=1  
                 )
                 
                 # Print detection results
@@ -469,11 +469,7 @@ Examples:
                     print("    No objects detected")
                 
                 # Save result image
-                model_name = Path(args.model_path).stem
-                result_dir = f"{model_name}_result"
-                os.makedirs(result_dir, exist_ok=True)
-                img_name = Path(image_path).stem
-                save_path = os.path.join(result_dir, f"{img_name}_result.jpg")
+                save_path = "result.jpg"
                 draw_detections(original_img, detections, str(save_path))
                 print(f"    Result saved to: {save_path}")
 
@@ -481,7 +477,6 @@ Examples:
                 print(f"Error processing {os.path.basename(image_path)}: {e}")
                 import traceback
                 traceback.print_exc()
-                # Continue processing other images
                 continue
             
             print()

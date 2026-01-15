@@ -35,5 +35,56 @@ ADLA2: A311D2_3.2T / S905X5_4T
 | TinyLlama-1.1B-Chat-v0.4 | S905X5 | w8a8 | 64 | 320 | 256 | 733.01 | 6.28 | 1.11 |
 
 
+## Compile
+
+### CPP
+To compile the CPP project using Android NDK, follow these steps:
+
+1. **Get the llmsdk library and header files**:
+   Clone the `amlnn-toolkit` repository to get the necessary libraries for compilation.
+   ```bash
+   # Clone to the parent directory of amlnn-model-playground
+   git clone https://github.com/Amlogic-NN/amlnn-toolkit.git
+   ```
+
+2. **Set the NDK path**:
+   ```bash
+   export NDK_PATH=/your/ndk/path/android-ndk-r25c
+   ```
+
+3. **Add NDK to your PATH**:
+   ```bash
+   export PATH=$NDK_PATH:$PATH
+   ```
+
+4. **Compile**:
+   Navigate to the `cpp` directory and run `build-android.sh`:
+   ```bash
+   cd examples/LLMs/cpp
+   ./build-android.sh
+   ```
+
+5. **Run**:
+   Push the compiled executable, model, and tokenizer to your Android device.
+
+   Optional configuration:
+   - **Push `llmsdk.so`**: If not already present on the device, push it to `/data/local/tmp`.
+   - **Set permissions**:
+     ```bash
+     chmod +x demo_llm_main
+     ```
+   - **Set environment variable**:
+     ```bash
+     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/vendor/lib64/:/data/local/tmp
+     ```
+
+   Then execute:
+   ```bash
+   ./demo_llm_main Qwen2.5-1.5B-Instruct-F16_quant_i8_t7c.adla tokenizer.json
+   ```
+
 ## Result
-![llm-result](./model/llm_result.png)
+
+| Banner | Inference Result |
+| :---: | :---: |
+| ![llm-result0](./model/llm-result0.png) | ![llm-result](./model/llm_result.png) |

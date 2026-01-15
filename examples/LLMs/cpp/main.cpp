@@ -63,8 +63,6 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    printf("\nWelcome to Amlogic LLM Demo!\n");
-
     LLMContext context;
     AML_LLMInitConfig init_config;
     memset(&init_config, 0, sizeof(AML_LLMInitConfig));
@@ -89,6 +87,31 @@ int main(int argc, char **argv)
 
     MyUserData my_data;
     memset(&my_data, 0, sizeof(MyUserData));
+
+    printf("***************************************************\n");
+    printf("*                                                 *\n");
+    printf("*   _____  _   _    _  _____ __     __            *\n");
+    printf("*  |  ___|| \\ | |  | ||  _  |\\ \\   / /            *\n");
+    printf("*  | |__  |  \\| |  | || | | | \\ \\_/ /             *\n");
+    printf("*  |  __| | . ` |  | || | | |  \\   /              *\n");
+    printf("*  | |___ | |\\  |__| || |_| |   | |               *\n");
+    printf("*  |_____||_| \\_|\\___/ \\___/    |_|               *\n");
+    printf("*                                                 *\n");
+    printf("*       _    __  __ _      ____   _____ _____ ____*\n");
+    printf("*      / \\  |  \\/  | |    / __ \\ / ____|_   _/ ___|*\n");
+    printf("*     / _ \\ | \\  / | |   | |  | | |  __  | || |    *\n");
+    printf("*    / ___ \\| |\\/| | |   | |  | | | |_ | | || |    *\n");
+    printf("*   / /   \\ \\ |  | | |___| |__| | |__| |_| || |___ *\n");
+    printf("*  /_/     \\_\\_|  |_|______\\____/ \\_____|_____\\____|*\n");
+    printf("*                                                 *\n");
+    printf("*            _      _      __  __                 *\n");
+    printf("*           | |    | |    |  \\/  |                *\n");
+    printf("*           | |    | |    | \\  / |                *\n");
+    printf("*           | |    | |    | |\\/| |                *\n");
+    printf("*           | |____| |____| |  | |                *\n");
+    printf("*           |______|______|_|  |_|                *\n");
+    printf("*                                                 *\n");
+    printf("***************************************************\n");
 
     printf("\nType your prompt and press Enter.\n");
     printf("Commands: [exit] to quit, [new_talk] to reset context.\n");
