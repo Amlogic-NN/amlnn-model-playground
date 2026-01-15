@@ -35,6 +35,13 @@ ADLA2: A311D2_3.2T / S905X5_4T
 | TinyLlama-1.1B-Chat-v0.4 | S905X5 | w8a8 | 64 | 320 | 256 | 733.01 | 6.28 | 1.11 |
 
 
+## Download Models
+
+Pre-quantized ADLA models are available on Hugging Face:
+
+- **Qwen2.5-1.5B (A311D2)**: [Hugging Face Repository](https://huggingface.co/Amlogic-NN/Qwen2.5-1.5B-Instruct-F16_quant_i8_adla/tree/main/a311d2)
+
+
 ## Compile
 
 ### CPP
