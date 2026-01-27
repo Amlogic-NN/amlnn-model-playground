@@ -92,6 +92,18 @@ To compile the CPP project using Android NDK, follow these steps:
 
 ### Python
 
+**System Requirements**:
+- OS: Ubuntu 22.04
+- Python: 3.10
+
+**Verify NPU Driver Version**:
+Execute the following commands in the serial console to check the NPU driver version:
+```bash
+dmesg | grep adla
+strings /usr/lib/libadla.so | grep LIBADLA
+```
+The driver version must be 1.7.x or higher.
+
 1. **Install Dependencies**:
    Ensure the`amlllm`Python package is installed:
    ```bash
