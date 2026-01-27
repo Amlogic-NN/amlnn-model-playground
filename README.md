@@ -1,4 +1,3 @@
-[简体中文](README_CN.md) | [English](README.md)
 <div align="left">
   <img src="poster1.jpg" width="100%" alt="Amlogic Tech Banner">
 </div>
@@ -84,5 +83,4 @@
 
 
 ​	
-
 
