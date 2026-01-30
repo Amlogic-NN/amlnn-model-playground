@@ -1,3 +1,14 @@
+## Model Description
+
+This model is converted from MobileNetV2 pretrained weights
+originally released by Google under the Apache License 2.0.
+
+Original model:
+- Architecture: MobileNetV2
+- Source: TensorFlow / Keras official implementation
+
+The model has been converted and optimized into ADLA format
+for deployment on Amlogic NPU platforms.
 
 ##  Demo Run
 
@@ -103,4 +114,5 @@ Top-5 Classification Results:
 ```
 
 The classification results show the model's confidence scores (probabilities) for each detected class, with the highest probability indicating the most likely classification.
+
 
