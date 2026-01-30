@@ -39,7 +39,7 @@ ADLA2: A311D2_3.2T / S905X5_4T
 
 Pre-quantized ADLA models are available on Hugging Face:
 
-- **Qwen2.5-1.5B (A311D2)**: [Hugging Face Repository](https://huggingface.co/Amlogic-NN/Qwen2.5-1.5B-Instruct-F16_quant_i8_adla/tree/main/a311d2)
+- **Qwen2.5-0.5B (A311D2)**: [Hugging Face Repository](https://huggingface.co/Amlogic-NN/Qwen2.5-0.5B-Instruct_quant_i8/blob/main/Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla)
 
 
 ## Compile
@@ -87,7 +87,7 @@ To compile the CPP project using Android NDK, follow these steps:
 
    Then execute:
    ```bash
-   ./demo_llm_main Qwen2.5-1.5B-Instruct-F16_quant_i8_t7c.adla tokenizer.json
+   ./demo_llm_main Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla tokenizer.json
    ```
 
 ### Python
@@ -131,7 +131,7 @@ The driver version must be 1.7.x or higher.
 4. **Usage Examples**:
    ```bash
    # Using Qwen model
-   python simple_chat.py --model Qwen2.5-1.5B-Instruct-F16_quant_i8_t7c.adla --tokenizer tokenizer.json --model-type qwen
+   python simple_chat.py --model Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla --tokenizer tokenizer.json --model-type qwen
    
    # Using Top-P sampling mode
    python simple_chat.py --model model.adla --tokenizer tokenizer.json --sampling-mode top_p --top-p 0.9 --temperature 0.8
