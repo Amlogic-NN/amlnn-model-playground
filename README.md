@@ -36,6 +36,8 @@
 | Image-Text Matching    | [clip](https://huggingface.co/openai/clip-vit-base-patch32)  | Hybrid | A311D2/S905X5 |
 | Chat LLM               | deepseek                                                     | Hybrid | A311D2/S905X5 |
 
+pre-build models:
+[huggingface](https://huggingface.co/Amlogic-NN/amlnn-adla-models/tree/main)
 
 
 # Benchmark List(FPS)
