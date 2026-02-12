@@ -32,6 +32,7 @@ add_executable(${PROJECT_NAME}
     main.cpp
     model_invoke.cpp
     pre_postprocess.cpp
+    clip_tokenizer.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}

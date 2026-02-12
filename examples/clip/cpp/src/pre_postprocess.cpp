@@ -19,13 +19,13 @@
 #include <algorithm>
 #include <string>
 #include <iostream>
-#include "model_invoke.h"
+#include "clip_process.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 // bilinear interpolation scaling
-std::vector<float> resize_bilinear(
+static std::vector<float> resize_bilinear(
     const unsigned char* src, int src_w, int src_h, int channels,
     int dst_w, int dst_h)
 {
@@ -102,29 +102,29 @@ std::vector<float> preprocess_image(const std::string& image_path) {
         }
     }
 
-    // get NHWC
+    // Return NHWC format (batch dimension will be added in caller)
     return cropped;
 }
 
-float post_process(const float* a, const std::vector<float>& b) {
-    float dot = 0.0f, scale = 100.00000762939453f;
-    for (size_t i = 0; i < b.size(); ++i) {
-        dot += a[i] * b[i];
+// ==================== Post Processing ====================
+
+std::vector<float> l2_normalize(const std::vector<float>& vec)
+{
+    float norm = 0.0f;
+    for (float v : vec) {
+        norm += v * v;
     }
-    dot *= scale;
-    return dot;
+    norm = std::sqrt(norm) + 1e-12f;
+
+    std::vector<float> result(vec.size());
+    for (size_t i = 0; i < vec.size(); ++i) {
+        result[i] = vec[i] / norm;
+    }
+    return result;
 }
 
-float post_process(const int8_t* a, const std::vector<float>& b) {
-    float dot = 0.0f, scale = 100.00000762939453f;
-    for (size_t i = 0; i < b.size(); ++i) {
-        dot += (a[i] - 66) * b[i];
-    }
-    dot *= scale;
-    return dot;
-}
-
-std::vector<float> softmax(const std::vector<float>& logits) {
+std::vector<float> softmax(const std::vector<float>& logits)
+{
     std::vector<float> result(logits.size());
 
     // numerical stability: subtract the maximum value first.
@@ -141,4 +141,18 @@ std::vector<float> softmax(const std::vector<float>& logits) {
     }
 
     return result;
+}
+
+float compute_similarity(const std::vector<float>& a, const std::vector<float>& b, float scale)
+{
+    if (a.size() != b.size()) {
+        printf("Feature dimension mismatch: %zu vs %zu\n", a.size(), b.size());
+        return 0.0f;
+    }
+
+    float dot = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i) {
+        dot += a[i] * b[i];
+    }
+    return dot * scale;
 }
