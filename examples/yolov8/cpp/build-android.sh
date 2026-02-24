@@ -70,7 +70,8 @@ cmake ../../src \
     -DANDROID_ABI=${TARGET_ABI} \
     -DANDROID_PLATFORM=android-24 \
     -DCMAKE_BUILD_TYPE=Release \
-    -DOpenCV_DIR=${ROOT_PWD}/../../../dependency/opencv/opencv-android-sdk-build/sdk/native/jni/abi-${TARGET_ABI}
+    -DOpenCV_DIR=${ROOT_PWD}/../../../dependency/opencv/opencv-android-sdk-build/sdk/native/jni/abi-${TARGET_ABI} \
+    -DNNSDK_DIR=${ROOT_PWD}/../../../../amlnn-toolkit/nn_runtime/nnsdk
 
 make -j4
 

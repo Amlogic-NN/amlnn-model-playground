@@ -46,8 +46,13 @@ done
 GCC_COMPILER=${GCC_COMPILER:-aarch64-linux-gnu}
 
 # Set compilers
-export CC=${GCC_COMPILER}-gcc
-export CXX=${GCC_COMPILER}-g++
+if [[ ${GCC_COMPILER} == *"-gcc" ]]; then
+    export CC=${GCC_COMPILER}
+    export CXX=${GCC_COMPILER%-gcc}-g++
+else
+    export CC=${GCC_COMPILER}-gcc
+    export CXX=${GCC_COMPILER}-g++
+fi
 
 # Validate compiler
 if ! command -v ${CC} &> /dev/null; then
@@ -68,10 +73,21 @@ echo "BUILD_DIR: ${BUILD_DIR}"
 mkdir -p ${BUILD_DIR}
 cd ${BUILD_DIR}
 
+# Set OpenCV path
+if [ "${TARGET_ARCH}" == "aarch64" ]; then
+    OPENCV_DIR_NAME="opencv-linux-aarch64"
+elif [ "${TARGET_ARCH}" == "armhf" ]; then
+    OPENCV_DIR_NAME="opencv-linux-armhf"
+else
+    echo "Warning: No OpenCV prebuilt for architecture ${TARGET_ARCH}"
+fi
+
 cmake ../../src \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=${TARGET_ARCH} \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=Release \
+    -DNNSDK_DIR=${ROOT_PWD}/../../../../amlnn-toolkit/nn_runtime/nnsdk \
+    -DOpenCV_DIR=${ROOT_PWD}/../../../dependency/opencv/${OPENCV_DIR_NAME}/share/OpenCV
 
 make -j4
 
