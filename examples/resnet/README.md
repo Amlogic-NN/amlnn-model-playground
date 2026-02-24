@@ -61,6 +61,20 @@ example
 
 #### 1. Compile
 
+#### AMLNN SDK Setup
+
+Resolve the AMLNN nnsdk dependency using one of the following methods:
+
+- **Priority 1 – Environment variable (recommended)**
+  ```bash
+  export AMLNN_HOME=/path/to/amlnn-toolkit
+  ```
+- **Priority 3 – Sibling directory fallback** *(automatic)*
+  Place `amlnn-toolkit` as a sibling to `amlnn-model-playground`:
+  ```bash
+  git clone git@github.com:Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
+  ```
+
 **Prerequisites:**
 - Android NDK (r25e recommended)
 - `ANDROID_NDK_PATH` environment variable set

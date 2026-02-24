@@ -41,19 +41,42 @@ while getopts 'a:h' opt; do
   esac
 done
 
-if [ -z "${ANDROID_NDK_PATH}" ]; then
-    if [ -n "${ANDROID_NDK}" ]; then
-        ANDROID_NDK_PATH=${ANDROID_NDK}
-    elif [ -n "${ANDROID_NDK_HOME}" ]; then
-        ANDROID_NDK_PATH=${ANDROID_NDK_HOME}
-    else
-        echo "Error: ANDROID_NDK_PATH is not set."
-        echo "Please set ANDROID_NDK_PATH to your Android NDK directory."
+SCRIPT_DIR=$(cd "$(dirname $0)" && pwd)
+
+# Priority 1: Environment variable (recommended)
+if [ -n "$AMLNN_HOME" ]; then
+    if [ ! -d "$AMLNN_HOME/nn_runtime" ]; then
+        echo "Error: AMLNN_HOME is set to '$AMLNN_HOME' but nn_runtime was not found there."
+        echo "Please check your AMLNN_HOME path."
         exit 1
     fi
+    RUNTIME_PATH="$AMLNN_HOME/nn_runtime"
+    echo "Priority 1: Using AMLNN_HOME from environment: $AMLNN_HOME"
+# Priority 3: Fallback to sibling amlnn-toolkit (compatibility)
+elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit/nn_runtime" ]; then
+    export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit" && pwd)"
+    RUNTIME_PATH="$AMLNN_HOME/nn_runtime"
+    echo "Priority 3: Using sibling amlnn-toolkit as fallback: $AMLNN_HOME"
+elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit-a/nn_runtime" ]; then
+    export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit-a" && pwd)"
+    RUNTIME_PATH="$AMLNN_HOME/nn_runtime"
+    echo "Priority 3: Using sibling amlnn-toolkit-a as fallback: $AMLNN_HOME"
+else
+    echo ""
+    echo "Error: AMLNN SDK not found."
+    echo ""
+    echo "Please do one of the following:"
+    echo ""
+    echo "  Option A (recommended) – set AMLNN_HOME:"
+    echo "    export AMLNN_HOME=/path/to/amlnn-toolkit"
+    echo "    ./build-android-all.sh"
+    echo ""
+    echo "  Option B – clone amlnn-toolkit as a sibling directory:"
+    echo "    git clone git@github.com:Amlogic-NN/amlnn-toolkit.git ../../../amlnn-toolkit"
+    echo "    ./build-android-all.sh"
+    echo ""
+    exit 1
 fi
-
-SCRIPT_DIR=$(cd "$(dirname $0)" && pwd)
 
 echo "============================================"
 echo "Building all Android examples"
@@ -92,6 +115,10 @@ for EXAMPLE in "${EXAMPLES[@]}"; do
     echo "--------------------------------------------"
     echo "Building: ${EXAMPLE}"
     echo "--------------------------------------------"
+
+    # Clean previous build to avoid stale CMake cache
+    echo "Cleaning: ${EXAMPLE_DIR}/build/android"
+    rm -rf "${EXAMPLE_DIR}/build/android"
 
     if bash "${BUILD_SCRIPT}" -a "${TARGET_ABI}"; then
         SUCCEEDED+=("${EXAMPLE}")

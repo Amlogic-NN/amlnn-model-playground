@@ -68,6 +68,35 @@ pre-build models:
 - means currently supported.
 
 # Examples Compile
+## AMLNN SDK Setup
+
+The C++ demos depend on the **AMLNN nnsdk** runtime library. The build system resolves it using the following priority order:
+
+**Priority 1 – Environment variable (recommended)**
+
+```bash
+export AMLNN_HOME=/path/to/amlnn-toolkit
+```
+
+**Priority 2 – CMake auto-find (`FindAMLNN.cmake`)**
+
+Handled automatically via `cmake/FindAMLNN.cmake` in the project root — useful in IDE and CI environments.
+
+**Priority 3 – Sibling directory fallback**
+
+If `AMLNN_HOME` is not set, the script automatically looks for `amlnn-toolkit` as a sibling directory:
+```
+modelzoo/
+├── amlnn-model-playground/   ← this repo
+└── amlnn-toolkit/            ← SDK placed here automatically found
+```
+
+Clone it with:
+```bash
+git clone git@github.com:Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
+```
+
+
 
 ​     Each **example** directory contains a **build-android.sh** and build-linux.sh **script**. For compilation steps, refer to **Chapter 4** of the **README.md** file in the corresponding example directory.
 

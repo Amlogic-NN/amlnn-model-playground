@@ -49,7 +49,8 @@ echo "BUILD_DIR: ${BUILD_DIR}"
 mkdir -p ${BUILD_DIR}
 cd ${BUILD_DIR}
 
-cmake ../../src \
+cmake -Wno-dev ../../src \
+    -DAMLNN_HOME=${AMLNN_HOME:-} \
     -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_PATH}/build/cmake/android.toolchain.cmake \
     -DANDROID_ABI=${TARGET_ABI} \
     -DANDROID_PLATFORM=android-24 \
