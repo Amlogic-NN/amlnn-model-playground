@@ -93,12 +93,24 @@ modelzoo/
 
 Clone it with:
 ```bash
-git clone git@github.com:Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
+git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
 ```
 
 
 
-​     Each **example** directory contains a **build-android.sh** and build-linux.sh **script**. For compilation steps, refer to **Chapter 4** of the **README.md** file in the corresponding example directory.
+​     Each **example** directory contains a **build-android.sh** and **build-linux.sh** script. For compilation steps, refer to **Chapter 4** of the **README.md** file in the corresponding example directory.
+
+To build **all examples at once**, use the top-level batch script:
+
+```bash
+cd examples
+./build-android-all.sh          # auto-detects amlnn-toolkit (Priority 3)
+# or explicitly:
+AMLNN_HOME=/path/to/amlnn-toolkit ./build-android-all.sh
+```
+
+The script automatically cleans the previous build, resolves the AMLNN SDK via the priority rules above, and prints a build summary at the end.
+
 
 
 

@@ -72,7 +72,7 @@ else
     echo "    ./build-android-all.sh"
     echo ""
     echo "  Option B – clone amlnn-toolkit as a sibling directory:"
-    echo "    git clone git@github.com:Amlogic-NN/amlnn-toolkit.git ../../../amlnn-toolkit"
+    echo "    git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../amlnn-toolkit"
     echo "    ./build-android-all.sh"
     echo ""
     exit 1
