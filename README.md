@@ -68,7 +68,7 @@ pre-build models:
 - means currently supported.
 
 # Examples Compile
-## AMLNN SDK Setup
+## AMLNN Runtime setup
 
 The C++ demos depend on the **AMLNN** runtime library. The build system automatically looks for `amlnn-toolkit` as a sibling directory:
 ```
