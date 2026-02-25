@@ -88,15 +88,9 @@ git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
 
 ## Android Complication
 
-Android compilation requires the NDK toolchain. The build scripts look for the NDK path via the following environment variables (in priority order):
+Android compilation requires the NDK toolchain. The build scripts look for the NDK path via the environment variables 
 
-| Variable | Description |
-| -------- | ----------- |
-| `ANDROID_NDK_PATH` | Preferred variable |
-| `ANDROID_NDK` | Fallback |
-| `ANDROID_NDK_HOME` | Fallback |
-
-Set one of them before building, for example:
+Set environment variables before building, for example:
 
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r25c
