@@ -1,5 +1,5 @@
 LOCAL_PATH := $(call my-dir)
-LLM_SDK_PATH := $(LOCAL_PATH)/../../../../amlnn-toolkit/npu_runtime/llmsdk
+LLM_SDK_PATH := $(LOCAL_PATH)/../../../../amlnn-toolkit/nn_runtime/llmsdk
 3RDPARTY_PATH := $(LOCAL_PATH)/../../../dependency
 $(warning $(LOCAL_PATH))
 

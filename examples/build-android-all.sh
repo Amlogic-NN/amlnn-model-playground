@@ -84,20 +84,15 @@ echo "NDK_PATH: ${ANDROID_NDK_PATH}"
 echo "TARGET_ABI: ${TARGET_ABI}"
 echo "============================================"
 
-# List all examples that have a build-android.sh
-EXAMPLES=(
-    "clip/cpp"
-    "mobilenet/cpp"
-    "ppocr-det/cpp"
-    "resnet/cpp"
-    "retinaface/cpp"
-    "whisper/cpp"
-    "yoloe/cpp"
-    "yolov11/cpp"
-    "yolov8/cpp"
-    "yoloworld/cpp"
-    "yolox/cpp"
-)
+# Dynamically discover all examples that have a build-android.sh
+mapfile -t BUILD_SCRIPTS < <(find "${SCRIPT_DIR}" -mindepth 3 -maxdepth 3 -name "build-android.sh" | sort)
+
+EXAMPLES=()
+for script in "${BUILD_SCRIPTS[@]}"; do
+    # Convert absolute path to a path relative to SCRIPT_DIR (e.g. "yolov8/cpp")
+    rel=$(realpath --relative-to="${SCRIPT_DIR}" "$(dirname "$script")")
+    EXAMPLES+=("$rel")
+done
 
 FAILED=()
 SUCCEEDED=()
