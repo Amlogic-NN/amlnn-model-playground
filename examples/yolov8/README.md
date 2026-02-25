@@ -60,7 +60,7 @@ example
 | ----------------- | ------------------------------------------------------------ |
 | model_path        | onnx model path                                              |
 | adla_tookkit_path | path to adla_toolkit                                         |
-| target_platform   | Specify target platform. for A311D2 : PRODUCT_PID0XA003。for S905X5:  PRODUCT_PID0XA005 |
+| target_platform   | Specify target platform. for A311D2 : PRODUCT_PID0XA003. for S905X5: PRODUCT_PID0XA005 |
 
 
 

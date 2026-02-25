@@ -1,6 +1,6 @@
 
 
-# 1、Android Platform
+# 1. Android Platform
 
 ​	 **Android compilation** depends on the NDK toolchain. Currently, version r25c is recommended. Download link: https://github.com/android/ndk/wiki/Unsupported-Downloads
 
@@ -34,7 +34,7 @@
 
     
 
-# 2、Linux Platform
+# 2. Linux Platform
 
    **Linux compilation** toolchain dependency: **gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf**, download link: https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-a/downloads/
 
