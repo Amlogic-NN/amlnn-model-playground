@@ -150,6 +150,4 @@ The driver version must be 1.7.x or higher.
 
 ## Result
 
-| Banner | Inference Result |
-| :---: | :---: |
-| ![llm-result0](./model/llm-result0.png) | ![llm-result](./model/llm_result.png) |
+![llm-result0](./model/llm-result0.png) 
