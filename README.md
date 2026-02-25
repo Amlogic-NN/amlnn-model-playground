@@ -86,6 +86,24 @@ git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
 
 ​     Each **example** directory contains a **build-android.sh** and **build-linux.sh** script. For compilation steps, refer to **Chapter 4** of the **README.md** file in the corresponding example directory.
 
+## Android Complication
+
+Android compilation requires the NDK toolchain. The build scripts look for the NDK path via the following environment variables (in priority order):
+
+| Variable | Description |
+| -------- | ----------- |
+| `ANDROID_NDK_PATH` | Preferred variable |
+| `ANDROID_NDK` | Fallback |
+| `ANDROID_NDK_HOME` | Fallback |
+
+Set one of them before building, for example:
+
+```bash
+export ANDROID_NDK_PATH=/path/to/android-ndk-r25c
+```
+
+> **Note:** NDK **r25c** is recommended. Download: https://github.com/android/ndk/wiki/Unsupported-Downloads
+
 To build **all examples at once**, use the top-level batch script:
 
 ```bash
@@ -98,7 +116,46 @@ AMLNN_HOME=/path/to/amlnn-toolkit ./build-android-all.sh
 The script automatically cleans the previous build, resolves the AMLNN SDK via the priority rules above, and prints a build summary at the end.
 
 
+## Yocto Compilation
 
+Each example's `build-linux.sh` also supports **Yocto** mode via the `-m yocto` flag.
+
+**Dependency:** A Yocto SDK (Poky). Set the path via environment variable or `-s` flag:
+
+```bash
+export YOCTO_SDK_ROOT=/path/to/poky/sdk
+```
+
+The toolchain file is shared across all demos at `examples/cmake/yocto-toolchain.cmake`.
+
+**Build a single demo:**
+
+```bash
+cd examples/yolox/cpp
+
+# 64-bit (default)
+./build-linux.sh -m yocto -s /path/to/poky/sdk
+
+# 32-bit
+./build-linux.sh -m yocto -b 32 -s /path/to/poky/32bit-sdk
+```
+
+**Build all demos at once:**
+
+```bash
+cd examples
+
+# 64-bit
+./build-linux-all.sh -m yocto -s /path/to/poky/sdk
+
+# 32-bit
+./build-linux-all.sh -m yocto -b 32 -s /path/to/poky/32bit-sdk
+
+# Clean yocto build artifacts
+./clean-linux-all.sh -m yocto
+```
+
+> **Note:** The `LLMs` demo is automatically excluded from the batch build scripts.
 
 # **Release Notes**
 
