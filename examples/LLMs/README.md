@@ -42,10 +42,10 @@ Pre-quantized ADLA models are available on Hugging Face:
 - **Qwen2.5-0.5B (A311D2)**: [Hugging Face Repository](https://huggingface.co/Amlogic-NN/Qwen2.5-0.5B-Instruct_quant_i8/blob/main/Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla)
 
 
-## Compile
+## Run LLM on Amlogic Devices
 
 ### CPP
-To compile the CPP project using Android NDK, follow these steps:
+To compile the CPP project using Android NDK, please follow these steps:
 
 1. **Get the llmsdk library and header files**:
    Clone the `amlnn-toolkit` repository to get the necessary libraries for compilation.
@@ -90,10 +90,17 @@ To compile the CPP project using Android NDK, follow these steps:
    ./demo_llm_main Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla tokenizer.json
    ```
 
-### Python
+### Python (Arm-based Ubuntu)
+
+**Hardware Requirements**:
+- SOC: A311D2 or S905X5
+- DDR: ≥ 4GB  
 
 **System Requirements**:
 - OS: Ubuntu 22.04
+
+> [!CAUTION]
+> The system image is awaiting release; there is currently no official image available.
 - Python: 3.10
 
 **Verify NPU Driver Version**:
@@ -104,20 +111,35 @@ strings /usr/lib/libadla.so | grep LIBADLA
 ```
 The driver version must be 1.7.x or higher.
 
-1. **Install Dependencies**:
-   Ensure the`amlllm`Python package is installed:
+1. **Create Python Environment**:
    ```bash
-   pip install amlllm-1.0.0-cp310-cp310-linux_aarch64.whl
+   # Install Miniforge if needed
+   wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+   bash Miniforge3-Linux-aarch64.sh
+   
+   # Create Environment
+   conda create -n nnserver_310 python=3.10 -y
+   conda activate nnserver_310
    ```
 
-2. **Run**:
+2. **Get and install amlllm python whl**:
+   Clone the `amlnn-toolkit` repository to get the necessary libraries for compilation.
+   ```bash
+   # Clone to the parent directory of amlnn-model-playground
+   git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../../amlnn-toolkit
+
+   # Install python whl
+   pip install ../../../amlnn-toolkit/amlnn_edge_toolkit_lite/whl/amlllm-1.0.0-cp310-cp310-linux_aarch64.whl
+   ```
+
+3. **Run**:
    Navigate to the`py`directory and run`simple_chat.py`:
    ```bash
    cd examples/LLMs/py
    python simple_chat.py --model <model_path> --tokenizer <tokenizer_path> [options]
    ```
 
-3. **Parameters**:
+4. **Parameters**:
    - `--model`: (Required) Path to LLM model file
    - `--tokenizer`: (Required) Path to tokenizer resources
    - `--sampling-mode`: Sampling mode, options: `argmax`, `top_p`, `top_k`, default: `argmax`
@@ -128,7 +150,7 @@ The driver version must be 1.7.x or higher.
    - `--loglevel`: Log level, options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, default: `ERROR`
    - `--model-type`: Model type template, options: `none`, `qwen`, `deepseek`, `gemma`, `gemma3`, `llama`, `tiny_llama`, `tiny_llama_v0_4`, `phi_1_5`, `phi_2`, default: `none`
 
-4. **Usage Examples**:
+5. **Usage Examples**:
    ```bash
    # Using Qwen model
    python simple_chat.py --model Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla --tokenizer tokenizer.json --model-type qwen
@@ -140,7 +162,7 @@ The driver version must be 1.7.x or higher.
    python simple_chat.py --model model.adla --tokenizer tokenizer.json --sampling-mode top_k --top-k 5
    ```
 
-5. **Interactive Commands**:
+6. **Interactive Commands**:
    After the program starts, you enter an interactive interface that supports the following commands:
    - Direct input: Enter text and press Enter, the model will generate a response (streaming output)
    - `exit`: Exit the program
