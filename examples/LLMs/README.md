@@ -93,7 +93,7 @@ To compile the CPP project using Android NDK, please follow these steps:
 ### Python (Arm-based Ubuntu)
 
 **Hardware Requirements**:
-- SOC: A311D2 or S905X5
+- SOC: A311D2
 - DDR: ≥ 4GB  
 
 **System Requirements**:
