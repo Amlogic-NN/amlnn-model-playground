@@ -59,7 +59,7 @@ static float compute_iou(const Detection& det1, const Detection& det2) {
 
     float area1 = (det1.x2 - det1.x1) * (det1.y2 - det1.y1);
     float area2 = (det2.x2 - det2.x1) * (det2.y2 - det2.y1);
-    
+
     return inter / (area1 + area2 - inter);
 }
 
@@ -96,7 +96,7 @@ static std::vector<Detection> nms_by_class(const std::vector<Detection>& detecti
 
 std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape) {
     cv::Mat img_rgb;
-    
+
     if (img.empty()) {
         LOGE("Preprocess received empty image");
         return {};
@@ -128,7 +128,7 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     int pad_bottom = static_cast<int>(round(pad_h / 2.0 + 0.1));
 
     cv::Mat img_padded;
-    cv::copyMakeBorder(img_resized, img_padded, pad_top, pad_bottom, pad_left, pad_right, 
+    cv::copyMakeBorder(img_resized, img_padded, pad_top, pad_bottom, pad_left, pad_right,
                       cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 
     cv::Mat img_float;
@@ -155,14 +155,14 @@ cv::Mat quantize_input(const cv::Mat& float_img, float scale, int8_t zero_point)
     return quantized_img;
 }
 
-static std::vector<Detection> get_detections(float* output, std::tuple<int, int, int> output_shape, 
+static std::vector<Detection> get_detections(float* output, std::tuple<int, int, int> output_shape,
                                             int stride, float conf_thresh) {
     std::vector<Detection> detections;
 
     int grid_h = std::get<0>(output_shape);
     int grid_w = std::get<1>(output_shape);
     int channels = std::get<2>(output_shape);
-    
+
     const int num_classes = 80;
     const int dfl_channels = 64;  // 4 directions * 16 bins
 
@@ -288,9 +288,9 @@ cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections)
         cv::Scalar color(rgb.at<cv::Vec3b>(0, 0)[0], rgb.at<cv::Vec3b>(0, 0)[1], rgb.at<cv::Vec3b>(0, 0)[2]);
 
         // Draw bounding box
-        cv::rectangle(drawn_image, 
+        cv::rectangle(drawn_image,
                       cv::Point(static_cast<int>(det.x1), static_cast<int>(det.y1)),
-                      cv::Point(static_cast<int>(det.x2), static_cast<int>(det.y2)), 
+                      cv::Point(static_cast<int>(det.x2), static_cast<int>(det.y2)),
                       color, 2);
 
         // Draw label
@@ -304,17 +304,17 @@ cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections)
             label_y = static_cast<int>(det.y1) + text_size.height + 5;
 
         // Draw label background
-        cv::rectangle(drawn_image, 
+        cv::rectangle(drawn_image,
                       cv::Point(label_x, label_y - text_size.height - baseline),
-                      cv::Point(label_x + text_size.width, label_y + baseline), 
+                      cv::Point(label_x + text_size.width, label_y + baseline),
                       color, cv::FILLED);
 
         // Determine text color based on background brightness
         int brightness = (color[0] + color[1] + color[2]) / 3;
         cv::Scalar text_color = brightness < 128 ? cv::Scalar(255, 255, 255) : cv::Scalar(0, 0, 0);
 
-        cv::putText(drawn_image, label, 
-                    cv::Point(label_x, label_y), 
+        cv::putText(drawn_image, label,
+                    cv::Point(label_x, label_y),
                     cv::FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1, cv::LINE_AA);
     }
     return drawn_image;

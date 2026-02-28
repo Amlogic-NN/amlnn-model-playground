@@ -27,9 +27,9 @@
 #include "nn_sdk.h"
 
 // Global DMA config for models
-static aml_memory_config_t vision_mem_config;
-static aml_memory_data_t vision_mem_data;
-static void* vision_context_flag = nullptr;
+static aml_memory_config_t image_mem_config;
+static aml_memory_data_t image_mem_data;
+static void* image_context_flag = nullptr;
 
 static aml_memory_config_t text_mem_config;
 static aml_memory_data_t text_mem_data;
@@ -48,7 +48,7 @@ void* init_network_file(const char *model_path)
 
     /* set omp, If you are considering high CPU usage during operation,
        you can turn off this api, set_openmp_opt_flag = false */
-    aml_openmp_opt_t openmp_opt[] = 
+    aml_openmp_opt_t openmp_opt[] =
     {
         {
            .operator_type = AML_Unknown,
@@ -62,7 +62,7 @@ void* init_network_file(const char *model_path)
     config.forward_ctrl.softop_info.openmp_opt = openmp_opt;
 
     /* set neon */
-    aml_neon_opt_t neon_opt[] = 
+    aml_neon_opt_t neon_opt[] =
     {
         {
            .operator_type = AML_Unknown,
@@ -84,10 +84,11 @@ void* init_network_file(const char *model_path)
     return qcontext;
 }
 
-std::vector<float> run_vision_model(void* qcontext, const std::vector<float>& input_data)
+std::vector<float> run_image_model(void* qcontext, const std::vector<float>& input_data)
 {
     int ret = 0;
     nn_input inData;
+
     nn_output *outdata = NULL;
     aml_output_config_t outconfig;
 
@@ -96,19 +97,19 @@ std::vector<float> run_vision_model(void* qcontext, const std::vector<float>& in
     inData.size = input_data.size() * sizeof(float);
 
     // Use DMA
-    if (!vision_context_flag) {
-        vision_mem_config.cache_type = AML_WITH_CACHE;
-        vision_mem_config.memory_type = AML_VIRTUAL_ADDR;
-        vision_mem_config.direction = AML_MEM_DIRECTION_READ_WRITE;
-        vision_mem_config.index = 0;
-        vision_mem_config.mem_size = inData.size;
-        aml_util_mallocBuffer(qcontext, &vision_mem_config, &vision_mem_data);
-        aml_util_swapExternalInputBuffer(qcontext, &vision_mem_config, &vision_mem_data);
-        vision_context_flag = qcontext;
+    if (!image_context_flag) {
+        image_mem_config.cache_type = AML_WITH_CACHE;
+        image_mem_config.memory_type = AML_VIRTUAL_ADDR;
+        image_mem_config.direction = AML_MEM_DIRECTION_READ_WRITE;
+        image_mem_config.index = 0;
+        image_mem_config.mem_size = inData.size;
+        aml_util_mallocBuffer(qcontext, &image_mem_config, &image_mem_data);
+        aml_util_swapExternalInputBuffer(qcontext, &image_mem_config, &image_mem_data);
+        image_context_flag = qcontext;
     }
 
     inData.input_type = INPUT_DMA_DATA;
-    memcpy(vision_mem_data.viraddr, input_data.data(), vision_mem_config.mem_size);
+    memcpy(image_mem_data.viraddr, input_data.data(), image_mem_config.mem_size);
     inData.input = NULL;
 
     memset(&outconfig, 0, sizeof(aml_output_config_t));
@@ -117,7 +118,7 @@ std::vector<float> run_vision_model(void* qcontext, const std::vector<float>& in
     outdata = (nn_output*)aml_module_output_get(qcontext, outconfig);
 
     if (outdata == NULL || outdata->out[0].buf == NULL) {
-        printf("Vision model inference failed.\n");
+        printf("Image model inference failed.\n");
         return {};
     }
 
@@ -178,10 +179,10 @@ int destroy_network(void *qcontext)
 {
     int ret = 0;
 
-    if (vision_context_flag == qcontext) {
-        printf("Free vision model memory.\n");
-        aml_util_freeBuffer(qcontext, &vision_mem_config, &vision_mem_data);
-        vision_context_flag = nullptr;
+    if (image_context_flag == qcontext) {
+        printf("Free image model memory.\n");
+        aml_util_freeBuffer(qcontext, &image_mem_config, &image_mem_data);
+        image_context_flag = nullptr;
     } else if (text_context_flag == qcontext) {
         printf("Free text model memory.\n");
         aml_util_freeBuffer(qcontext, &text_mem_config, &text_mem_data);

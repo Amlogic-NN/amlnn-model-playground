@@ -102,7 +102,7 @@ std::vector<float> preprocess_image(const std::string& image_path) {
         }
     }
 
-    // Return NHWC format (batch dimension will be added in caller)
+    // get NHWC
     return cropped;
 }
 

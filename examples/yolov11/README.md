@@ -48,18 +48,18 @@
 
 ```
 cd model
-Usage:   ./adla_covnert.sh model_path adla_tookkit_path target_platform
+Usage:   ./adla_convert.sh model_path adla_toolkit_path target_platform
 
 example
- ./adla_covnert.sh yolov11m.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
- ./adla_covnert.sh yolov11s.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
- ./adla_covnert.sh yolov11n.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
+ ./adla_convert.sh yolov11m.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
+ ./adla_convert.sh yolov11s.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
+ ./adla_convert.sh yolov11n.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
 ```
 
-| Parameter         | Discription                                                  |
+| Parameter         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | model_path        | onnx model path                                              |
-| adla_tookkit_path | path to adla_toolkit                                         |
+| adla_toolkit_path | path to adla_toolkit                                         |
 | target_platform   | Specify target platform. for A311D2 : PRODUCT_PID0XA003. for S905X5:  PRODUCT_PID0XA005 |
 
 

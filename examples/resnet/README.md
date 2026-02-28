@@ -41,16 +41,16 @@
 
 ```
 cd model
-Usage:   ./adla_covnert.sh model_path adla_tookkit_path target_platform
+Usage:   ./adla_convert.sh model_path adla_toolkit_path target_platform
 
 example
 
 ```
 
-| Parameter         | Discription                                                  |
+| Parameter         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | model_path        | onnx model path                                              |
-| adla_tookkit_path | path to adla_toolkit                                         |
+| adla_toolkit_path | path to adla_toolkit                                         |
 | target_platform   | Specify target platform. for A311D2 : PRODUCT_PID0XA003. for S905X5:  PRODUCT_PID0XA005 |
 
 

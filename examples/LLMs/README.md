@@ -94,7 +94,7 @@ To compile the CPP project using Android NDK, please follow these steps:
 
 **Hardware Requirements**:
 - SOC: A311D2
-- DDR: ≥ 4GB  
+- DDR: = 4GB  
 
 **System Requirements**:
 - OS: Ubuntu 22.04

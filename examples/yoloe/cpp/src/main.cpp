@@ -174,7 +174,7 @@ int main(int argc, char** argv) {
     memset(&outconfig, 0, sizeof(aml_output_config_t));
     outconfig.typeSize = sizeof(aml_output_config_t);
     outconfig.format = AML_OUTDATA_FLOAT32;
-    
+
     nn_output* outdata = (nn_output*)aml_module_output_get(context, outconfig);
     if (!outdata) {
          std::cerr << "Failed to run network (get output)." << std::endl;
@@ -191,10 +191,10 @@ int main(int argc, char** argv) {
 
     std::cout << "Objects:\n";
     for (auto& box : boxes) {
-        std::cout << "[ " << box.x1 << ", " << box.y1 << ", " << box.x2 << ", " << box.y2 << " ]\n"; 
+        std::cout << "[ " << box.x1 << ", " << box.y1 << ", " << box.x2 << ", " << box.y2 << " ]\n";
     }
     std::cout << std::endl;
-    
+
     uninit_network(context);
 
     return 0;

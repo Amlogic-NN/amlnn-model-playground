@@ -37,7 +37,7 @@ std::vector<Detection> postprocess(std::tuple<float*, std::tuple<int, int, int>,
                                    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
                                    float conf_thresh, float iou_threshold, int num_classes, int reverse);
 
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections, 
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections,
                         const std::vector<std::string>& classes, int seed_offset = 0);
 
 #endif // _AMLNN_YOLO_WORLD_DEMO_POSTPROCESS_H_

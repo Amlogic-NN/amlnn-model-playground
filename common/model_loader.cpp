@@ -2,6 +2,22 @@
 // Exposed Functions
 // -------------------------------------------------------------------------
 
+/*
+ * Copyright (C) 2026 Amlogic, Inc. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "model_loader.h"
 #include <cstring>
 #include <iostream>
@@ -33,7 +49,7 @@ void* init_network(const char* model_path) {
     config.forward_ctrl.softop_info.set_openmp_opt_flag = true;
     config.forward_ctrl.softop_info.openmp_opt_num = sizeof(openmp_opt) / sizeof(aml_openmp_opt_t);
     config.forward_ctrl.softop_info.openmp_opt = openmp_opt;
- 
+
     /* set neon */
     aml_neon_opt_t neon_opt[] =
     {
@@ -42,12 +58,12 @@ void* init_network(const char* model_path) {
            .enable_neon = true,
            .involve_all_ops = true,
         },
- 
+
     };
     config.forward_ctrl.softop_info.set_neon_opt_flag = true;
     config.forward_ctrl.softop_info.neon_opt_num = sizeof(neon_opt) / sizeof(aml_neon_opt_t);
     config.forward_ctrl.softop_info.neon_opt = neon_opt;
-    
+
     qcontext = aml_module_create(&config);
     if (NULL == qcontext) {
         LOGE("aml_module_create fail for %s", model_path);
@@ -61,7 +77,7 @@ int uninit_network(void* qcontext) {
     if (ret) {
         LOGE("aml_module_destroy fail.");
         return -1;
-    }   
+    }
     return ret;
 }
 

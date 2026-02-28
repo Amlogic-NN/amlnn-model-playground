@@ -58,9 +58,9 @@ int main(int argc, char** argv) {
         int nw = img.cols * scale, nh = img.rows * scale;
         int px = (kInputW - nw) / 2, py = (kInputH - nh) / 2;
         cv::Mat res, canvas = cv::Mat::zeros(kInputH, kInputW, CV_32FC3);
-        canvas.setTo(cv::Scalar(114.0/255.0, 114.0/255.0, 114.0/255.0)); 
+        canvas.setTo(cv::Scalar(114.0/255.0, 114.0/255.0, 114.0/255.0));
         cv::resize(img, res, {nw, nh});
-        res.convertTo(res, CV_32FC3, 1.0 / 255.0); 
+        res.convertTo(res, CV_32FC3, 1.0 / 255.0);
         res.copyTo(canvas(cv::Rect(px, py, nw, nh)));
         hwc_to_chw(canvas, chw_buffer.data());
 
@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
             for (size_t i = 0; i < indices.size(); i++) {
                 int idx = indices[i];
                 printf("  %zu. %s (%.2f)\n", i + 1, kClassNames[class_ids[idx]].c_str(), confs[idx]);
-                
+
                 cv::rectangle(img, bboxes[idx], {0, 255, 0}, 2);
                 char text[256]; std::sprintf(text, "%s %.2f", kClassNames[class_ids[idx]].c_str(), confs[idx]);
                 cv::putText(img, text, {bboxes[idx].x, bboxes[idx].y - 5}, cv::FONT_HERSHEY_SIMPLEX, 0.5, {0, 255, 0}, 1);

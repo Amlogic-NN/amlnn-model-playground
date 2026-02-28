@@ -26,8 +26,8 @@
 // Initialize network from file
 void* init_network_file(const char *model_path);
 
-// Run vision model inference
-std::vector<float> run_vision_model(void* context, const std::vector<float>& input_data);
+// Run image model inference
+std::vector<float> run_image_model(void* context, const std::vector<float>& input_data);
 
 // Run text model inference
 std::vector<float> run_text_model(void* context, const std::vector<int64_t>& input_ids);

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
         in.input = (unsigned char*)input_buffer.data();
         in.size = input_buffer.size() * sizeof(float);
         in.info.valid = 1;
-        in.info.input_format = AML_INPUT_MODEL_NHWC; 
+        in.info.input_format = AML_INPUT_MODEL_NHWC;
         in.info.input_data_type = AML_INPUT_FP32;
         aml_module_input_set(ctx, &in);
 

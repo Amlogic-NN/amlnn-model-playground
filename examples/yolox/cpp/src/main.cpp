@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
     int pad_top = std::get<1>(pad);
 
     // 4. Run Network
-    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple = 
+    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple =
         std::make_tuple(img, scale, pad);
 
     auto start_time = std::chrono::high_resolution_clock::now();

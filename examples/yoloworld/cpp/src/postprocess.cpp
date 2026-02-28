@@ -40,7 +40,7 @@ static float compute_iou(const Detection& det1, const Detection& det2) {
 
     float area1 = (det1.x2 - det1.x1) * (det1.y2 - det1.y1);
     float area2 = (det2.x2 - det2.x1) * (det2.y2 - det2.y1);
-    
+
     return inter / (area1 + area2 - inter);
 }
 
@@ -48,7 +48,7 @@ static std::vector<Detection> nms_by_class(const std::vector<Detection>& detecti
     if (detections.empty()) return {};
 
     std::vector<Detection> final_detections;
-    
+
     std::unordered_map<int, std::vector<Detection>> class_detections;
     for (const auto& det : detections) {
         class_detections[det.class_id].push_back(det);
@@ -101,7 +101,7 @@ static float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-static std::vector<Detection> get_detections(float* output, std::tuple<int, int, int> output_shape, 
+static std::vector<Detection> get_detections(float* output, std::tuple<int, int, int> output_shape,
                                             int stride, float conf_thresh, int num_classes, int reverse) {
     std::vector<Detection> detections;
 
@@ -109,11 +109,11 @@ static std::vector<Detection> get_detections(float* output, std::tuple<int, int,
     int grid_w = std::get<1>(output_shape);
     int total_cells = grid_h * grid_w;
     int coords = 4 * 16;  // DFL coords: 64
-    
+
     // reverse=0: standard YOLO [classes + box]
     // reverse>0: YOLOWorld [box + classes]
-    int cls_offset = (reverse > 0) ? coords : 0;           
-    int dfl_offset = (reverse > 0) ? 0 : num_classes;      
+    int cls_offset = (reverse > 0) ? coords : 0;
+    int dfl_offset = (reverse > 0) ? 0 : num_classes;
 
     for (int i = 0; i < grid_h; ++i) {
         for (int j = 0; j < grid_w; ++j) {
@@ -177,7 +177,7 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     if (img.channels() == 4)
         cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
     else if (img.channels() == 3)
-        img_rgb = img.clone(); 
+        img_rgb = img.clone();
 
     if (img.channels() == 3) {
         cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
@@ -246,7 +246,7 @@ std::vector<Detection> postprocess(std::tuple<float*, std::tuple<int, int, int>,
     return suppress_cross_class_iou_conflicts(detections_nms, 0.8f);
 }
 
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections, 
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections,
                         const std::vector<std::string>& classes, int seed_offset) {
     int num_classes = classes.size();
     std::vector<cv::Scalar> color_palette;
@@ -264,9 +264,9 @@ cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections,
         if (class_id < 0 || class_id >= num_classes) continue;
 
         cv::Scalar color = color_palette[class_id];
-        cv::rectangle(drawn_image, 
+        cv::rectangle(drawn_image,
                       cv::Point(static_cast<int>(det.x1), static_cast<int>(det.y1)),
-                      cv::Point(static_cast<int>(det.x2), static_cast<int>(det.y2)), 
+                      cv::Point(static_cast<int>(det.x2), static_cast<int>(det.y2)),
                       color, 2);
 
         std::string label = classes[class_id] + ": " + cv::format("%.2f", det.score);
@@ -277,14 +277,14 @@ cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections,
         int label_y = static_cast<int>(det.y1) - 10;
         if (label_y < text_size.height) label_y = static_cast<int>(det.y1) + text_size.height + 10;
 
-        cv::rectangle(drawn_image, 
+        cv::rectangle(drawn_image,
                       cv::Point(label_x, label_y - text_size.height - baseline),
-                      cv::Point(label_x + text_size.width, label_y + baseline), 
+                      cv::Point(label_x + text_size.width, label_y + baseline),
                       color, cv::FILLED);
 
-        cv::putText(drawn_image, label, 
-                    cv::Point(label_x, label_y), 
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, 
+        cv::putText(drawn_image, label,
+                    cv::Point(label_x, label_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5,
                     cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
     }
     return drawn_image;

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #include <stdio.h>
 #include <time.h>
 #include <iostream>
@@ -50,7 +50,7 @@ int main(int argc, char ** argv)
 
     int64_t input_1_data[] = {50257, 50362};    /* init token, for tiny_en or base_en */
     int input_1_data_size = sizeof(input_1_data) / sizeof(input_1_data[0]);
- 
+
     int ret = 0;
     char* model_path_encoder = argv[1];
     char* model_path_decoder = argv[2];
@@ -105,8 +105,8 @@ int main(int argc, char ** argv)
         std::copy(input_1_data, input_1_data + input_1_data_size, decoder_inputs_data.input_1);
 
         // need enough data 0
-        std::fill(decoder_inputs_data.input_1 + input_1_data_size, 
-                decoder_inputs_data.input_1 + decoder_inputs_data.input_1_size, 
+        std::fill(decoder_inputs_data.input_1 + input_1_data_size,
+                decoder_inputs_data.input_1 + decoder_inputs_data.input_1_size,
                 0);
 
         whisper_time.preProcess_start_time = get_time_count();

@@ -33,7 +33,7 @@ struct ProfilingTimer
 {
     uint64_t init_start, init_end;
     uint64_t preprocess_start, preprocess_end;
-    uint64_t vision_infer_start, vision_infer_end;
+    uint64_t image_infer_start, image_infer_end;
     uint64_t text_infer_start, text_infer_end;
 };
 
@@ -71,10 +71,10 @@ std::vector<std::string> parse_texts(const std::string& input)
 
 void print_usage(const char* prog_name)
 {
-    printf("Usage: %s <vision_model> <text_model> <tokenizer_dir> [--profiling]\n", prog_name);
+    printf("Usage: %s <image_model> <text_model> <tokenizer_dir> [--profiling]\n", prog_name);
     printf("\n");
     printf("Arguments:\n");
-    printf("  vision_model:   Path to vision model (.adla)\n");
+    printf("  image_model:    Path to image model (.adla)\n");
     printf("  text_model:     Path to text model (.adla)\n");
     printf("  tokenizer_dir:  Path to directory containing vocab.json and merges.txt\n");
     printf("  --profiling:    Enable performance profiling output (optional)\n");
@@ -96,7 +96,7 @@ int main(int argc, char ** argv)
         return -1;
     }
 
-    const char* vision_model_path = argv[1];
+    const char* image_model_path = argv[1];
     const char* text_model_path = argv[2];
     const char* tokenizer_dir = argv[3];
 
@@ -119,11 +119,11 @@ int main(int argc, char ** argv)
     }
 
     // Initialize models
-    printf("[Info] Initializing vision model: %s\n", vision_model_path);
+    printf("[Info] Initializing image model: %s\n", image_model_path);
     timer.init_start = get_time_count();
-    void* vision_context = init_network_file(vision_model_path);
-    if (vision_context == NULL) {
-        printf("[Error] Failed to initialize vision model.\n");
+    void* image_context = init_network_file(image_model_path);
+    if (image_context == NULL) {
+        printf("[Error] Failed to initialize image model.\n");
         return -1;
     }
 
@@ -131,7 +131,7 @@ int main(int argc, char ** argv)
     void* text_context = init_network_file(text_model_path);
     if (text_context == NULL) {
         printf("[Error] Failed to initialize text model.\n");
-        destroy_network(vision_context);
+        destroy_network(image_context);
         return -1;
     }
     timer.init_end = get_time_count();
@@ -218,14 +218,14 @@ int main(int argc, char ** argv)
         }
         timer.preprocess_end = get_time_count();
 
-        // Run vision model
-        timer.vision_infer_start = get_time_count();
-        std::vector<float> image_embedding = run_vision_model(vision_context, image_input);
+        // Run image model
+        timer.image_infer_start = get_time_count();
+        std::vector<float> image_embedding = run_image_model(image_context, image_input);
         if (image_embedding.empty()) {
-            printf("[Error] Vision model inference failed.\n");
+            printf("[Error] Image model inference failed.\n");
             continue;
         }
-        timer.vision_infer_end = get_time_count();
+        timer.image_infer_end = get_time_count();
 
         // L2 normalize image embedding
         image_embedding = l2_normalize(image_embedding);
@@ -264,7 +264,8 @@ int main(int argc, char ** argv)
             continue;
         }
 
-        printf("[Info] Text embeddings size: %zu x %zu\n", text_embeddings.size(), 
+        printf("[Info] Text embeddings size: %zu x %zu\n",
+               text_embeddings.size(),
                text_embeddings.empty() ? 0 : text_embeddings[0].size());
 
         // ==================== Compute Similarity ====================
@@ -302,11 +303,11 @@ int main(int argc, char ** argv)
 
         if (profiling) {
             uint64_t preprocess_time = (timer.preprocess_end - timer.preprocess_start) / 1000000;
-            uint64_t vision_time = (timer.vision_infer_end - timer.vision_infer_start) / 1000000;
+            uint64_t image_time = (timer.image_infer_end - timer.image_infer_start) / 1000000;
             uint64_t text_total_time = (timer.text_infer_end - timer.text_infer_start) / 1000000;
             printf("\n[Profiling]\n");
             printf("  Image preprocess:  %lums\n", preprocess_time);
-            printf("  Vision inference:  %lums\n", vision_time);
+            printf("  Image inference:   %lums\n", image_time);
             for (size_t i = 0; i < texts.size() && i < text_infer_times.size(); ++i) {
                 printf("  Text inference[%zu]: %lums  '%s'\n", i, text_infer_times[i], texts[i].c_str());
             }
@@ -316,9 +317,9 @@ int main(int argc, char ** argv)
     }
 
     // Cleanup
-    ret = destroy_network(vision_context);
+    ret = destroy_network(image_context);
     if (ret != 0) {
-        printf("[Error] Failed to destroy vision model.\n");
+        printf("[Error] Failed to destroy image model.\n");
     }
 
     ret = destroy_network(text_context);

@@ -70,10 +70,10 @@ int main(int argc, char** argv) {
 
     // 3. Preprocess
     auto start_time = std::chrono::high_resolution_clock::now();
-    
-    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple = 
+
+    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple =
         preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-    
+
     // 4. Run Network
     void* output_ptr = run_network(context, {input_tuple});
     if (!output_ptr) {
@@ -87,10 +87,10 @@ int main(int argc, char** argv) {
     float* outbuf0 = (float*)outdata->out[0].buf;
     float* outbuf1 = (float*)outdata->out[1].buf;
     float* outbuf2 = (float*)outdata->out[2].buf;
-    
+
     int num_classes = CLASS_NAMES.size();
-    int channels = 87; 
-    
+    int channels = 87;
+
     std::vector<Detection> detections = postprocess(
         std::make_tuple(outbuf0, std::make_tuple(MODEL_INPUT_HEIGHT / 8, MODEL_INPUT_WIDTH / 8, channels), 8),
         std::make_tuple(outbuf1, std::make_tuple(MODEL_INPUT_HEIGHT / 16, MODEL_INPUT_WIDTH / 16, channels), 16),
@@ -114,6 +114,6 @@ int main(int argc, char** argv) {
 
     // 7. Cleanup
     uninit_network(context);
-    
+
     return 0;
 }

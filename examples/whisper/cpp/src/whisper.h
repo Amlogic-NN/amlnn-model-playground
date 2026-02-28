@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #ifndef WHISPER_H
 #define WHISPER_H
 
@@ -93,7 +93,7 @@ extern "C" {
     struct whisper_context;
     struct whisper_state;
     struct whisper_full_params;
-    
+
     typedef int32_t whisper_pos;
     typedef int32_t whisper_token;
     typedef int32_t whisper_seq_id;

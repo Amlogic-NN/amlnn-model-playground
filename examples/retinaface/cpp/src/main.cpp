@@ -139,25 +139,25 @@ int main(int argc, char** argv) {
             auto& b = boxes[k];
             int x1 = (b[0] * kInputW - px) / scale, y1 = (b[1] * kInputH - py) / scale;
             int x2 = (b[2] * kInputW - px) / scale, y2 = (b[3] * kInputH - py) / scale;
-            
+
             cv::rectangle(img, {x1, y1}, {x2, y2}, {0, 255, 0}, 2);
 
             char score_text[16];
             std::snprintf(score_text, sizeof(score_text), "%.2f", scores_vec[k]);
-            cv::putText(img, score_text, {x1, std::max(y1 - 5, 5)}, 
+            cv::putText(img, score_text, {x1, std::max(y1 - 5, 5)},
                         cv::FONT_HERSHEY_SIMPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
 
             auto& lm = lms[k];
             for (int j = 0; j < 5; j++) {
                 int lx = (lm[2 * j] * kInputW - px) / scale;
                 int ly = (lm[2 * j + 1] * kInputH - py) / scale;
-                cv::circle(img, {lx, ly}, 2, {0, 0, 255}, -1); 
+                cv::circle(img, {lx, ly}, 2, {0, 0, 255}, -1);
             }
         }
 
         std::string save_path = out_dir + "/" + filename;
         cv::imwrite(save_path, img);
-        
+
         std::cout << "    Detected " << keep.size() << " faces\n";
         std::cout << "    Result saved to: " << save_path << "\n\n";
     }

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     memset(&outconfig, 0, sizeof(aml_output_config_t));
     outconfig.typeSize = sizeof(aml_output_config_t);
     outconfig.format = AML_OUTDATA_FLOAT32;
-    
+
     nn_output* outdata = (nn_output*)aml_module_output_get(context, outconfig);
     if (!outdata) {
          std::cerr << "Failed to run network (get output)." << std::endl;

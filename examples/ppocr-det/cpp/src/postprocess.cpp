@@ -47,8 +47,8 @@ int preprocess(const cv::Mat& image, cv::Mat& pre_image, const int width, const 
 }
 
 int postprocess(float* out, const cv::Mat& image, float box_score_thresh, float box_thresh, std::vector<Object>& result, float scale) {
-    
-    if (out == NULL) 
+
+    if (out == NULL)
         return -1;
     cv::Mat pred_map(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH, CV_32FC1, out);
 

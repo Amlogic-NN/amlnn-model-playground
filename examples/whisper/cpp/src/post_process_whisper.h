@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #include "pre_post_common.h"
 
 whisper_vocab read_token_info(std::string token_path);

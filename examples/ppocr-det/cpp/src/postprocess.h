@@ -46,7 +46,7 @@ std::vector<Object> find_box(const cv::Mat pred_map, const cv::Mat& bit_map,
                              const float box_score_thresh, const float unclip_ratio,
                              const cv::Mat& image, float scale);
 
-std::vector<cv::Point> get_min_boxes(const std::vector<cv::Point>& in_vec, 
+std::vector<cv::Point> get_min_boxes(const std::vector<cv::Point>& in_vec,
                         float& min_side_len, float& perimeter);
 
 float get_box_score_fast(const cv::Mat& in_mat, const std::vector<cv::Point>& in_box);

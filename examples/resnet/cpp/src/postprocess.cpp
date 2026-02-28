@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #include "postprocess.h"
 #include <iostream>
 #include <fstream>
@@ -56,7 +56,7 @@ std::vector<std::string> load_labels(const std::string& path) {
     std::ifstream f(path);
     std::string line;
     while (std::getline(f, line)) {
-        if(!line.empty()) labels.push_back(line);
+        if (!line.empty()) labels.push_back(line);
     }
     return labels;
 }

@@ -70,7 +70,7 @@ void* init_network_file(const char *model_path)
 
     /* set omp, If you are considering high CPU usage during operation,
        you can turn off this api, set_openmp_opt_flag = false */
-    aml_openmp_opt_t openmp_opt[] = 
+    aml_openmp_opt_t openmp_opt[] =
     {
         {
            .operator_type = AML_Unknown,
@@ -84,7 +84,7 @@ void* init_network_file(const char *model_path)
     config.forward_ctrl.softop_info.openmp_opt = openmp_opt;
 
     /* set neon */
-    aml_neon_opt_t neon_opt[] = 
+    aml_neon_opt_t neon_opt[] =
     {
         {
            .operator_type = AML_Unknown,
@@ -193,11 +193,11 @@ nn_output* run_network_decoder_process(void *qcontext, Input_Decoder* input_data
             }
 
             inData.input_type = INPUT_DMA_DATA;
-            memcpy(mem_data[i].viraddr, i == 0 ? static_cast<const void*>(input_data->input_0) : 
+            memcpy(mem_data[i].viraddr, i == 0 ? static_cast<const void*>(input_data->input_0) :
                     static_cast<const void*>(input_data->input_1), mem_config[i].mem_size);
             inData.input = NULL;
         } else {
-            inData.input = i == 0 ? reinterpret_cast<unsigned char*>(const_cast<float*>(input_data->input_0)) : 
+            inData.input = i == 0 ? reinterpret_cast<unsigned char*>(const_cast<float*>(input_data->input_0)) :
                     reinterpret_cast<unsigned char*>(const_cast<int64_t*>(input_data->input_1));
             inData.input_type = BINARY_RAW_DATA;
 
@@ -266,7 +266,7 @@ int destroy_network(void *qcontext)
 {
     int ret = 0;
 
-    /* free encoder 
+    /* free encoder
        encoder.use_dma = true
        encoder.malloc_buffer_once = false
     */
@@ -279,7 +279,7 @@ int destroy_network(void *qcontext)
     }
     encoder.use_dma = false;
 
-    /* free decoder 
+    /* free decoder
        first use destroy_network, decoder.malloc_buffer_once is false,
        and set decoder.malloc_buffer_once is true
     */

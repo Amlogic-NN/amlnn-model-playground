@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #include "pre_process_whisper.h"
 #include "pre_post_common.h"
 

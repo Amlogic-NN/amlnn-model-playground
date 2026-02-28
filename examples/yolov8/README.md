@@ -48,19 +48,19 @@
 
 ```
 cd model
-Usage:   ./adla_covnert.sh model_path adla_tookkit_path target_platform
+Usage:   ./adla_convert.sh model_path adla_toolkit_path target_platform
 
 example
- ./adla_covnert.sh yolov8m.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
- ./adla_covnert.sh yolov8s.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
- ./adla_covnert.sh yolov8n.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
+ ./adla_convert.sh yolov8m.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
+ ./adla_convert.sh yolov8s.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
+ ./adla_convert.sh yolov8n.onnx  /xxxx/adla-toolkit-binary-3.2.9.3 PRODUCT_PID0XA005
 ```
 
-| Parameter         | Discription                                                  |
+| Parameter         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | model_path        | onnx model path                                              |
-| adla_tookkit_path | path to adla_toolkit                                         |
-| target_platform   | Specify target platform. for A311D2 : PRODUCT_PID0XA003. for S905X5: PRODUCT_PID0XA005 |
+| adla_toolkit_path | path to adla_toolkit                                         |
+| target_platform   | Specify target platform. for A311D2 : PRODUCT_PID0XA003。for S905X5:  PRODUCT_PID0XA005 |
 
 
 
@@ -78,7 +78,7 @@ example
 ```bash
 # Build for arm64-v8a
 cd examples/yolov8/cpp
-AMLNN_HOME=/path/to/amlnn-toolkit ./build-android.sh -a arm64-v8a
+./build-android.sh -a arm64-v8a
 ```
 
 The executable will be generated at `build/android/yolov8_demo` (Note: executable name may vary, verify in build folder).

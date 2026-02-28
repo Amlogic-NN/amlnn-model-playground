@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 #ifndef WHISPER_INVOKE_H
 #define WHISPER_INVOKE_H
 

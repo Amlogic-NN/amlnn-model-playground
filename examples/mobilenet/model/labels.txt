@@ -240,7 +240,7 @@ miniature pinscher
 Greater Swiss Mountain dog
 Bernese mountain dog
 Appenzeller
-EntleBucher
+Entlebucher
 boxer
 bull mastiff
 Tibetan mastiff
@@ -420,7 +420,7 @@ balloon
 ballpoint
 Band Aid
 banjo
-bannister
+banister
 barbell
 barber chair
 barbershop
@@ -468,7 +468,7 @@ bulletproof vest
 bullet train
 butcher shop
 cab
-caldron
+cauldron
 candle
 cannon
 canoe

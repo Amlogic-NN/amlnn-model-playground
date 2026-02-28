@@ -94,16 +94,16 @@ std::vector<int> nms(const std::vector<cv::Rect2f>& boxes, const std::vector<flo
  * @param score_thr Score threshold
  * @return Detection results, each row is [x1, y1, x2, y2, score, class_id]
  */
-std::vector<Detection> multiclass_nms(const std::vector<cv::Rect2f>& boxes, 
+std::vector<Detection> multiclass_nms(const std::vector<cv::Rect2f>& boxes,
                                       const std::vector<std::vector<float>>& scores,
                                       int num_classes,
-                                      float nms_thr, 
+                                      float nms_thr,
                                       float score_thr);
 
 /**
  * Visualize detection results (consistent with Python version, supports adaptive font size)
  */
-cv::Mat vis(const cv::Mat& img, 
+cv::Mat vis(const cv::Mat& img,
             const std::vector<Detection>& detections,
             float conf_thresh,
             const std::vector<std::string>& class_names);
