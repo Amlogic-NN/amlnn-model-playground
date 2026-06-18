@@ -38,13 +38,13 @@
 
 ```
 cd model
-Usage:   ./adla_convert.sh model_path adla_tookkit_path target_platform
+Usage:   ./adla_covnert.sh model_path adla_tookkit_path target_platform
 
 example
  
 ```
 
-| Parameter         | description                                                  |
+| Parameter         | Discription                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | model_path        | onnx model path                                              |
 | adla_tookkit_path | path to adla_toolkit                                         |
@@ -159,7 +159,7 @@ adb pull /data/local/tmp/gesture_result
 
 **Profiling Visualization**
 
-After a successful run of the Python demo, a folder named after the model (e.g., `{model_name}`) will be generated in the script directory. This folder contains 5 HTML files that provide a visual and detailed breakdown of per-layer performance:
+When `--loglevel` is set to `INFO`, a successful run of the Python demo will generate a folder named after the model (e.g., {model_name}) in the script directory. This folder contains 5 HTML files that provide a visual and detailed breakdown of per-layer performance:
 - `hard_op_chart.html` & `soft_op_chart.html`: Hardware/Software op execution details.
 - `dram_rd_chart.html` & `dram_wr_chart.html`: Bandwidth read/write distribution.
 - `pie_charts_distribution.html`: Overall resource allocation.

@@ -134,6 +134,7 @@ chmod +x gesture_demo
 export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
 # Usage: ./gesture_demo <model_path> <image_dir>
+
 ./gesture_demo gesture_w8a8.adla input/
 ```
 
@@ -228,3 +229,4 @@ adb pull model_result/test_image_result.png
 ```
 ![alt text](./result1.jpg)
 ![alt text](./result2.jpg)
+
