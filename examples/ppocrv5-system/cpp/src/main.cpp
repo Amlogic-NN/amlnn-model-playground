@@ -60,14 +60,13 @@ int main(int argc, char* argv[]) {
               << "dict: " << dict_path << "\n";
 
     try {
-        OcrEngine ocr_engine(det_model_path, rec_model_path, dict_path);
-
         cv::Mat image = cv::imread(image_path);
         if (image.empty()) {
             std::cerr << "Error: failed to load image: " << image_path << std::endl;
             return -1;
         }
 
+        OcrEngine ocr_engine(det_model_path, rec_model_path, dict_path);
         auto results = ocr_engine.Process(image);
 
         OcrUtils utils;
