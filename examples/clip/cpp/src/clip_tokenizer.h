@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <climits>
 #include <unordered_map>
 
 class CLIPTokenizer {

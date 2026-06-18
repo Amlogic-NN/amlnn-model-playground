@@ -22,11 +22,11 @@
 #include <tuple>
 #include <unordered_set>
 #include <string>
-#include "nn_sdk.h"
+#include "nnsdk2.h"
 
-void* init_network(const char* model_path);
+int init_network(std::string model_path, void*& qcontext);
 int uninit_network(void* qcontext);
-std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
-void* run_network(void* qcontext, std::vector<std::tuple<cv::Mat, float, std::tuple<int, int>>> input_tuples);
-
+amlnn_tensor_attr query_input_attr(void* context, uint32_t index);
+amlnn_tensor_attr query_output_attr(void *context, uint32_t index);
+bool run_network(void* context, void* input_data, size_t input_size, std::vector<amlnn_output>& outputs);
 #endif

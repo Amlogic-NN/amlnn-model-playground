@@ -22,117 +22,145 @@
 #include <iomanip>
 #include <fstream>
 #include <opencv2/opencv.hpp>
+#include <filesystem>
 #include "postprocess.h"
+#include "nnsdk2.h"
 #include "model_loader.h"
 
-const std::string DEFAULT_OUTPUT_PATH = "./result.jpg";
 const int MODEL_INPUT_WIDTH = 256;
 const int MODEL_INPUT_HEIGHT = 256;
 const float SCORE_THRESHOLD = 0.5f;
+namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
 {
-    std::string model_path;
-    std::string image_path;
-
-    if (argc != 3)
+    if (argc < 4)
     {
-        printf("%s <model_path> <image_path>\n", argv[0]);
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> <detections_dir>\n";
+        return 0;
+    }
+
+    std::string model_path = argv[1];
+    std::string det_dir = argv[3];
+
+    std::cout << "Blazepose Landmark Demo" << std::endl;
+
+    fs::create_directory("blazepose_landmark_result");
+
+    // 1. Initialize Network
+    void *context = nullptr;
+    int ret = init_network(model_path, context);
+
+    if (ret != AMLNN_SUCCESS)
+    {
+        std::cerr << "Failed to initialize network. Error: " << ret << std::endl;
         return -1;
     }
 
-    if (argc > 1)
-        model_path = argv[1];
-    if (argc > 2)
-        image_path = argv[2];
+    // Query IO numbers
+    amlnn_input_output_num io_num;
+    amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
 
-    std::cout << "Blazepose Detect Demo" << std::endl;
-    std::cout << "Model: " << model_path << std::endl;
-    std::cout << "Image: " << image_path << std::endl;
-    std::cout << "Output: " << DEFAULT_OUTPUT_PATH << std::endl;
+    int landmarks_idx = -1;
+    int heatmap_idx = -1;
 
-    // 1. Load Image
-    cv::Mat img = cv::imread(image_path);
-    if (img.empty())
+    for (int i = 0; i < io_num.n_output; i++)
     {
-        std::cerr << "Failed to load image from " << image_path << std::endl;
-        return -1;
-    }
-    // Load detections
-    // n * 13 detections
-    // image_path -> txt_path
-    std::vector<std::vector<float>> detections;
+        amlnn_tensor_attr attr;
+        memset(&attr, 0, sizeof(attr));
+        attr.index = i;
+        amlnn_query(context, AMLNN_QUERY_OUTPUT_ATTR, &attr, sizeof(attr));
 
-    std::string txt_path = image_path.substr(0, image_path.find_last_of('.'));
-    txt_path += ".txt";
-    std::ifstream ifs(txt_path);
-    for (std::string line; std::getline(ifs, line);)
-    {
-        std::istringstream iss(line);
-        std::vector<float> det;
-        float val;
-        while (iss >> val)
-            det.push_back(val);
-        if (!det.empty())
-            detections.push_back(det);
+        if (attr.n_elems == 195)
+        {
+            // 39 keypoints * 5 dims (x, y, z, vis, presence)
+            landmarks_idx = i;
+        }
+        else if (attr.n_elems == 159744)
+        {
+            // Actual Heatmap (64x64x39)
+            heatmap_idx = i;
+        }
     }
 
-    // 2. Initialize Network
-    void *context = init_network(model_path.c_str());
-    if (!context)
-    {
-        std::cerr << "Failed to initialize network." << std::endl;
+    if (landmarks_idx == -1) {
+        std::cerr << "Error: Could not find landmark output tensor (size 195)!" << std::endl;
         return -1;
     }
 
-    // 3. Preprocess
-    auto start_time = std::chrono::high_resolution_clock::now();
+    std::cout << "Mapped Landmarks to output index: " << landmarks_idx
+              << ", Heatmap to output index: " << heatmap_idx << std::endl;
 
-    auto [preprocessed, affine] = preprocess(img, detections, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
+    // Query Input Attribute for Scale and Zero Point
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
-    // Quantize to int16 (model expects quantized input)
-    cv::Mat quantized_img = quantize_input(preprocessed, 0.000030518509447574615f);
+    // Ensure API outputs Float32 directly
+    std::vector<amlnn_output> outData(io_num.n_output);
 
-    // 4. Set input and run inference
-    nn_input inData;
-    memset(&inData, 0, sizeof(nn_input));
-    inData.input_type = BINARY_RAW_DATA;
-    inData.input = quantized_img.data;
-    inData.input_index = 0;
-    inData.size = quantized_img.total() * quantized_img.elemSize();
-
-    if (aml_module_input_set(context, &inData) != 0)
+    for (auto &it : fs::directory_iterator(argv[2]))
     {
-        std::cerr << "Failed to set input." << std::endl;
-        uninit_network(context);
-        return -1;
+        if (!it.is_regular_file())
+            continue;
+
+        // 2. Load Image
+        cv::Mat img = cv::imread(it.path().string());
+        if (img.empty())
+            continue;
+
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
+        std::cout << "============================================================" << std::endl;
+
+        // Load detection text file
+        std::string filename = it.path().stem().string();
+        std::string txt_path = det_dir + "/" + filename + ".txt";
+        auto detections = load_detections(txt_path);
+
+        if (detections.empty())
+        {
+            std::cout << "No detections found, skipping..." << std::endl;
+            continue;
+        }
+
+        // 3. Preprocess
+        auto [preprocessed, roi] = preprocess(img, detections, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
+        cv::Mat quantized_img = quantize_input(preprocessed, input_attr);
+
+        // 4. Set input, run inference, and Get Outputs
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        size_t input_size = input_attr.n_elems * sizeof(int8_t);
+        if (!run_network(context, quantized_img.data, input_size, outData))
+        {
+            std::cerr << "Failed to run network" << std::endl;
+            return -1;
+        }
+
+        if (outData.empty())
+        {
+            return -1;
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
+        std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
+
+        // 5. Postprocess (Direct Float Cast)
+        std::vector<BlazePoseLandmark> landmarks = postprocess(
+            (float *)outData[landmarks_idx].buf, // Dynamically found landmarks
+            (float *)outData[heatmap_idx].buf,   // Dynamically found heatmap / presence
+            roi);
+        std::cout << "Landmarks extracted successfully!" << std::endl;
+
+        // 6. Draw and Save
+        cv::Mat result_img = draw_landmarks(img, landmarks, SCORE_THRESHOLD);
+        std::string out_path = "blazepose_landmark_result/" + it.path().filename().string();
+        cv::imwrite(out_path, result_img);
+        std::cout << "Result saved to: " << out_path << std::endl;
     }
 
-    aml_output_config_t outconfig;
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outconfig.format = AML_OUTDATA_FLOAT32;
-
-    nn_output *outdata = (nn_output *)aml_module_output_get(context, outconfig);
-    if (!outdata)
-    {
-        std::cerr << "Failed to run network." << std::endl;
-        uninit_network(context);
-        return -1;
-    }
-
-    // 5. Postprocess
-    std::vector<BlazePoseLandmark> landmarks = postprocess(outdata, affine);
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
-
-    std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
-    std::cout << "Landmarks: " << landmarks.size() << std::endl;
-
-    // 6. Draw and Save
-    cv::Mat result_img = draw_landmarks(img, landmarks, SCORE_THRESHOLD);
-    cv::imwrite(DEFAULT_OUTPUT_PATH, result_img);
-    std::cout << "Result saved to " << DEFAULT_OUTPUT_PATH << std::endl;
+    std::cout << "============================================================" << std::endl
+              << std::endl;
 
     // 7. Cleanup
     uninit_network(context);

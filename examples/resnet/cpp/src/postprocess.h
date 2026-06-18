@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024–2025 Amlogic, Inc. All rights reserved.
+ * Copyright (C) 2026 Amlogic, Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,23 +13,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#pragma once
 
-#ifndef RESNET_POSTPROCESS_H
-#define RESNET_POSTPROCESS_H
-
+#include <opencv2/opencv.hpp>
 #include <vector>
 #include <string>
-#include <opencv2/opencv.hpp>
+#include "nnsdk2.h"
 
-static const float MEAN[3] = {123.675f, 116.28f, 103.53f};
-static const float STD[3]  = {58.395f, 58.395f, 58.395f};
-static constexpr int kInputW = 224;
-static constexpr int kInputH = 224;
+// Helper function to extract meaningful dimensions (ignores batch dim 1)
+std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
 
-void preprocess(const cv::Mat& src, float* dst);
+// Loads image, applies letterbox, normalizes, and quantizes for NPU
+std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
 
-void postprocess_topk(float* logits, int size, const std::vector<std::string>& labels, int k = 5);
+// Quantize float32 image to int8 for model input
+cv::Mat quantize_input(const cv::Mat& float_img, float scale, int32_t zero_point, int tensor_type);
 
+// Sorting logits and printing Top-K classes
+void postprocess_topk(float* logits,
+                      int size,
+                      const std::vector<std::string>& labels,
+                      int k = 5);
+
+// Load labels from a text file
 std::vector<std::string> load_labels(const std::string& path);
-
-#endif

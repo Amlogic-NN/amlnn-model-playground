@@ -22,127 +22,128 @@
 #include <iomanip>
 #include <fstream>
 #include <opencv2/opencv.hpp>
+#include <filesystem>
 #include "postprocess.h"
+#include "nnsdk2.h"
 #include "model_loader.h"
 
-const std::string DEFAULT_OUTPUT_PATH = "./result.jpg";
 const int MODEL_INPUT_WIDTH = 224;
 const int MODEL_INPUT_HEIGHT = 224;
 const float SCORE_THRESHOLD = 0.5f;
 const float NMS_THRESHOLD = 0.3f;
+namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
 {
-    std::string model_path;
-    std::string image_path;
 
-    if (argc != 3)
+    if (argc < 3)
     {
-        printf("%s <model_path> <image_path>\n", argv[0]);
-        return -1;
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir>\n";
+        return 0;
     }
 
-    if (argc > 1)
-        model_path = argv[1];
-    if (argc > 2)
-        image_path = argv[2];
+    std::string model_path = argv[1];
 
     std::cout << "Blazepose Detect Demo" << std::endl;
-    std::cout << "Model: " << model_path << std::endl;
-    std::cout << "Image: " << image_path << std::endl;
-    std::cout << "Output: " << DEFAULT_OUTPUT_PATH << std::endl;
 
-    // 1. Load Image
-    cv::Mat img = cv::imread(image_path);
-    if (img.empty())
+    fs::create_directory("blazepose_detect_result");
+
+    // 1. Initialize Network
+    void *context = nullptr;
+    int ret = init_network(model_path, context);
+
+    if (ret != AMLNN_SUCCESS)
     {
-        std::cerr << "Failed to load image from " << image_path << std::endl;
+        std::cerr << "Failed to initialize network. Error: " << ret << std::endl;
         return -1;
     }
 
-    // 2. Initialize Network
-    void *context = init_network(model_path.c_str());
-    if (!context)
+    // Query IO numbers to ensure we have exactly 2 output
+    amlnn_input_output_num io_num;
+    amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (io_num.n_output != 2)
     {
-        std::cerr << "Failed to initialize network." << std::endl;
+        std::cerr << "Warning: Expected 2 outputs (boxes, scores), but model has "
+                  << io_num.n_output << " outputs." << std::endl;
         return -1;
     }
 
-    // 3. Preprocess
-    auto start_time = std::chrono::high_resolution_clock::now();
+    // Query Input Attribute for Scale and Zero Point
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
-    auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-    std::cout << "scale" << scale << std::endl;
-    std::cout << "pad: ("
-              << std::get<0>(pad) << ", "
-              << std::get<1>(pad) << ")"
-              << std::endl;
-    // Quantize to int8 (model expects quantized input)
-    cv::Mat quantized_img = quantize_input(preprocessed, 0.007843137718737125, -1);
+    // should be 2 output
+    std::vector<amlnn_output> outData(io_num.n_output);
 
-    // 4. Set input and run inference
-    nn_input inData;
-    memset(&inData, 0, sizeof(nn_input));
-    inData.input_type = BINARY_RAW_DATA;
-    inData.input = quantized_img.data;
-    inData.input_index = 0;
-    inData.size = quantized_img.total() * quantized_img.elemSize();
-
-    if (aml_module_input_set(context, &inData) != 0)
+    for (auto &it : fs::directory_iterator(argv[2]))
     {
-        std::cerr << "Failed to set input." << std::endl;
-        uninit_network(context);
-        return -1;
-    }
+        if (!it.is_regular_file())
+            continue;
 
-    aml_output_config_t outconfig;
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outconfig.format = AML_OUTDATA_FLOAT32;
+        // 2. Load Image
+        cv::Mat img = cv::imread(it.path().string());
+        if (img.empty())
+            continue;
 
-    nn_output *outdata = (nn_output *)aml_module_output_get(context, outconfig);
-    if (!outdata)
-    {
-        std::cerr << "Failed to run network." << std::endl;
-        uninit_network(context);
-        return -1;
-    }
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
+        std::cout << "============================================================" << std::endl;
 
-    // 5. Postprocess
-    float *ori_boxes = (float *)outdata->out[0].buf;  // 2254 * 12
-    float *raw_scores = (float *)outdata->out[1].buf; // 2254 * 1
+        // 3. Preprocess
+        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
+        cv::Mat quantized_img = quantize_input(preprocessed, input_attr.scale, input_attr.zp);
 
-    std::vector<BlazePoseDetection> detections = postprocess(
-        ori_boxes,
-        raw_scores,
-        std::make_tuple(preprocessed, scale, pad),
-        SCORE_THRESHOLD,
-        NMS_THRESHOLD);
+        // 4. Set input, run inference, and Get Outputs
+        size_t input_size = input_attr.n_elems * sizeof(int8_t);
 
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
-
-    std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
-    std::cout << "Detections: " << detections.size() << std::endl;
-
-    // 6. Draw and Save
-    cv::Mat result_img = draw_detections(img, detections);
-    cv::imwrite(DEFAULT_OUTPUT_PATH, result_img);
-    std::cout << "Result saved to " << DEFAULT_OUTPUT_PATH << std::endl;
-
-    // image_path -> txt_path
-    std::string txt_path = image_path.substr(0, image_path.find_last_of('.'));
-    txt_path += ".txt";
-    std::ofstream ofs(txt_path);
-    if (ofs.is_open())
-    {
-        for (const auto &det : detections)
+        auto start_time = std::chrono::high_resolution_clock::now();
+        if (!run_network(context, quantized_img.data, input_size, outData))
         {
-            for (int i = 0; i < NUM_COORDS + 1; ++i)
-                ofs << det.coords[i] << (i < NUM_COORDS ? " " : "\n");
+            std::cerr << "Failed to run network" << std::endl;
+            return -1;
         }
+
+        if (outData.empty())
+        {
+            return -1;
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
+        std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
+
+        // 5. Postprocess
+        std::vector<BlazePoseDetection> detections = postprocess(
+            (float *)outData[0].buf,
+            (float *)outData[1].buf,
+            std::make_tuple(preprocessed, scale, pad),
+            SCORE_THRESHOLD,
+            NMS_THRESHOLD);
+
+        std::cout << "Detections: " << detections.size() << std::endl;
+
+        // 6. Draw and Save
+        cv::Mat result_img = draw_detections(img, detections);
+        std::string out_path = "blazepose_detect_result/" + it.path().filename().string();
+        cv::imwrite(out_path, result_img);
+        std::cout << "Result saved to: " << out_path << std::endl;
+
+        // image_path -> txt_path
+        std::string txt_path = out_path.substr(0, out_path.find_last_of('.'));
+        txt_path += ".txt";
+        std::ofstream ofs(txt_path);
+        if (ofs.is_open())
+        {
+            for (const auto &det : detections)
+            {
+                for (int i = 0; i < NUM_COORDS + 1; ++i)
+                    ofs << det.coords[i] << (i < NUM_COORDS ? " " : "\n");
+            }
+        }
+        std::cout << "Detections saved to " << txt_path << std::endl;
     }
-    std::cout << "Detections saved to " << txt_path << std::endl;
+
+    std::cout << "============================================================" << std::endl
+              << std::endl;
 
     // 7. Cleanup
     uninit_network(context);

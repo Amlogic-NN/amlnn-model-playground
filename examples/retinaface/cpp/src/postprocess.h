@@ -14,24 +14,34 @@
  * limitations under the License.
  */
 
-#ifndef RETINAFACE_POSTPROCESS_H
-#define RETINAFACE_POSTPROCESS_H
+#pragma once
 
 #include <vector>
 #include <array>
+#include <tuple>
 #include <opencv2/opencv.hpp>
 
-static constexpr int kInputW = 320;
-static constexpr int kInputH = 320;
+// Define the standard output structure for a detected face
+struct FaceDetection
+{
+    float x1, y1, x2, y2;
+    float score;
+    std::array<float, 10> landmarks;
+};
 
-std::vector<std::array<float, 4>> generate_priors();
+// Returns the expected number of priors for tensor size checking
+int get_num_priors(int target_w, int target_h);
 
-std::array<float, 10> decode_landm(const float* lm, int idx, int total, bool is_planar, const std::array<float, 4>& p);
+std::tuple<cv::Mat, float, int, int> preprocess(const cv::Mat &img, int target_w, int target_h);
+cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point, int tensor_type);
 
-std::array<float, 4> decode_box(const float* loc, int idx, int total, bool is_planar, const std::array<float, 4>& p);
+// Postprocessing logic
+std::vector<FaceDetection> postprocess(float *loc, bool loc_planar,
+                                       float *conf, bool conf_planar,
+                                       float *landm, bool landm_planar,
+                                       std::tuple<cv::Mat, float, int, int> input_tuple,
+                                       int target_w, int target_h,
+                                       float conf_thresh, float nms_thresh);
 
-float iou(const std::array<float, 4>& a, const std::array<float, 4>& b);
-
-std::vector<int> nms(const std::vector<std::array<float, 4>>& boxes, const std::vector<float>& scores, float thresh);
-
-#endif
+// Drawing logic
+cv::Mat draw_detections(cv::Mat image, const std::vector<FaceDetection> &detections);

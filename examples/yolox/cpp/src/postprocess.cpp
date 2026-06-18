@@ -15,395 +15,324 @@
  */
 
 #include "postprocess.h"
-#include <algorithm>
+#include <iostream>
 #include <cmath>
-#include <numeric>
+#include <algorithm>
+#include <unordered_map>
 
-std::tuple<cv::Mat, float, std::tuple<int, int>> preproc(const cv::Mat& img, std::tuple<int, int> input_size) {
-    // 1. letterbox (resize + padding)
-    // 2. BGR to RGB conversion
-    // 3. Normalize to 0-1 (divide by 255.0)
-    // Note: NNSDK's model_loader expects HWC format, so return HWC instead of CHW
+#define LOGI(...)            \
+    do                       \
+    {                        \
+        printf(__VA_ARGS__); \
+        printf("\n");        \
+    } while (0)
+#define LOGE(...)                     \
+    do                                \
+    {                                 \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n");        \
+    } while (0)
 
-    int input_height = std::get<0>(input_size);
-    int input_width = std::get<1>(input_size);
+const char *COCO_CLASSES[80] = {
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "doughnut", "cake", "chair", "couch",
+    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush"};
 
-    // letterbox: calculate scale and padding
-    float scale = std::min(static_cast<float>(input_height) / img.rows,
-                           static_cast<float>(input_width) / img.cols);
-    int new_w = static_cast<int>(std::round(img.cols * scale));
-    int new_h = static_cast<int>(std::round(img.rows * scale));
+// ImageNet Mean/Std values
+const float MEAN[3] = {123.675f, 116.28f, 103.53f};
+const float STD[3] = {58.395f, 57.12f, 57.37f};
 
-    // resize
-    cv::Mat resized_img;
-    if (img.size() != cv::Size(new_w, new_h)) {
-        cv::resize(img, resized_img, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
-    } else {
-        resized_img = img.clone();
+std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
+{
+    std::vector<int> shape;
+    for (int i = 0; i < attr.n_dims; ++i)
+    {
+        if (attr.dims[i] > 1)
+        {
+            shape.push_back(attr.dims[i]);
+        }
+    }
+    return shape;
+}
+
+static float compute_iou(const Detection &det1, const Detection &det2)
+{
+    float xx1 = std::max(det1.x1, det2.x1);
+    float yy1 = std::max(det1.y1, det2.y1);
+    float xx2 = std::min(det1.x2, det2.x2);
+    float yy2 = std::min(det1.y2, det2.y2);
+
+    float w = std::max(0.0f, xx2 - xx1);
+    float h = std::max(0.0f, yy2 - yy1);
+    float inter = w * h;
+
+    float area1 = (det1.x2 - det1.x1) * (det1.y2 - det1.y1);
+    float area2 = (det2.x2 - det2.x1) * (det2.y2 - det2.y1);
+
+    return inter / (area1 + area2 - inter);
+}
+
+static std::vector<Detection> nms_by_class(const std::vector<Detection> &detections, float iou_threshold)
+{
+    if (detections.empty())
+        return {};
+
+    std::vector<Detection> final_detections;
+    std::unordered_map<int, std::vector<Detection>> class_detections;
+    for (const auto &det : detections)
+    {
+        class_detections[det.class_id].push_back(det);
     }
 
-    // padding
-    float pad_w = (input_width - new_w) / 2.0f;
-    float pad_h = (input_height - new_h) / 2.0f;
-    int top = static_cast<int>(std::round(pad_h - 0.1f));
-    int bottom = static_cast<int>(std::round(pad_h + 0.1f));
-    int left = static_cast<int>(std::round(pad_w - 0.1f));
-    int right = static_cast<int>(std::round(pad_w + 0.1f));
+    for (auto &[class_id, cls_dets] : class_detections)
+    {
+        std::sort(cls_dets.begin(), cls_dets.end(), [](const Detection &a, const Detection &b)
+                  { return a.score > b.score; });
 
-    cv::Mat padded_img;
-    cv::copyMakeBorder(resized_img, padded_img, top, bottom, left, right,
+        std::vector<bool> removed(cls_dets.size(), false);
+        for (size_t i = 0; i < cls_dets.size(); ++i)
+        {
+            if (removed[i])
+                continue;
+            final_detections.push_back(cls_dets[i]);
+
+            for (size_t j = i + 1; j < cls_dets.size(); ++j)
+            {
+                if (removed[j])
+                    continue;
+                if (compute_iou(cls_dets[i], cls_dets[j]) > iou_threshold)
+                {
+                    removed[j] = true;
+                }
+            }
+        }
+    }
+    return final_detections;
+}
+
+std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape)
+{
+    cv::Mat img_rgb;
+
+    if (img.empty())
+    {
+        LOGE("Preprocess received empty image");
+        return {};
+    }
+
+    if (img.channels() == 4)
+        cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
+    else if (img.channels() == 3)
+        cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
+    else
+        img_rgb = img.clone();
+
+    int orig_h = img.rows;
+    int orig_w = img.cols;
+    float scale = std::min(static_cast<float>(std::get<0>(new_shape)) / orig_h,
+                           static_cast<float>(std::get<1>(new_shape)) / orig_w);
+    int new_h = static_cast<int>(round(orig_h * scale));
+    int new_w = static_cast<int>(round(orig_w * scale));
+
+    cv::Mat img_resized;
+    cv::resize(img_rgb, img_resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
+
+    int pad_h = std::get<0>(new_shape) - new_h;
+    int pad_w = std::get<1>(new_shape) - new_w;
+    int pad_left = static_cast<int>(round(pad_w / 2.0 - 0.1));
+    int pad_right = static_cast<int>(round(pad_w / 2.0 + 0.1));
+    int pad_top = static_cast<int>(round(pad_h / 2.0 - 0.1));
+    int pad_bottom = static_cast<int>(round(pad_h / 2.0 + 0.1));
+
+    cv::Mat img_padded;
+    cv::copyMakeBorder(img_resized, img_padded, pad_top, pad_bottom, pad_left, pad_right,
                        cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 
-    // BGR to RGB conversion
-    cv::Mat rgb_img;
-    cv::cvtColor(padded_img, rgb_img, cv::COLOR_BGR2RGB);
+    cv::Mat img_float(img_padded.size(), CV_32FC3);
 
-    // Normalize to 0-1 range (divide by 255.0)
-    cv::Mat normalized_img;
-    rgb_img.convertTo(normalized_img, CV_32F, 1.0 / 255.0);
-
-    // mean = [0.485, 0.456, 0.406]
-    // std = [0.229, 0.224, 0.225]
-    // Note: Use cv::divide for per-channel division in OpenCV
-    cv::Scalar mean(0.485f, 0.456f, 0.406f);
-    cv::Scalar std(0.229f, 0.224f, 0.225f);
-    normalized_img -= mean;
-    cv::divide(normalized_img, std, normalized_img);
-
-    // Return HWC format, ImageNet normalized float32 image (RGB format)
-    // Also return scale and padding (left, top) for coordinate mapping
-    return std::make_tuple(normalized_img, scale, std::make_tuple(left, top));
-}
-
-static float sigmoid(float x) {
-    return 1.0f / (1.0f + std::exp(-x));
-}
-
-void demo_postprocess(float* outputs, int num_boxes, std::tuple<int, int> img_size, bool p6) {
-    int img_height = std::get<0>(img_size);
-    int img_width = std::get<1>(img_size);
-
-    std::vector<int> strides;
-    if (!p6) {
-        strides = {8, 16, 32};
-    } else {
-        strides = {8, 16, 32, 64};
-    }
-
-    // Calculate grid count for each stride
-    std::vector<int> hsizes, wsizes;
-    for (int stride : strides) {
-        hsizes.push_back(img_height / stride);
-        wsizes.push_back(img_width / stride);
-    }
-
-    // Build grids and expanded_strides
-    std::vector<std::vector<float>> grids_list;
-    std::vector<std::vector<float>> strides_list;
-
-    int total_boxes = 0;
-    for (size_t i = 0; i < strides.size(); ++i) {
-        int hsize = hsizes[i];
-        int wsize = wsizes[i];
-        int stride = strides[i];
-        int grid_size = hsize * wsize;
-
-        std::vector<float> grid(grid_size * 2);
-        std::vector<float> expanded_stride(grid_size);
-
-        for (int h = 0; h < hsize; ++h) {
-            for (int w = 0; w < wsize; ++w) {
-                int idx = h * wsize + w;
-                grid[idx * 2] = static_cast<float>(w);
-                grid[idx * 2 + 1] = static_cast<float>(h);
-                expanded_stride[idx] = static_cast<float>(stride);
-            }
-        }
-
-        grids_list.push_back(grid);
-        strides_list.push_back(expanded_stride);
-        total_boxes += grid_size;
-    }
-
-    // Merge all grids and strides
-    std::vector<float> all_grids(total_boxes * 2);
-    std::vector<float> all_strides(total_boxes);
-
-    int offset = 0;
-    for (size_t i = 0; i < grids_list.size(); ++i) {
-        int grid_size = grids_list[i].size() / 2;
-        for (int j = 0; j < grid_size; ++j) {
-            all_grids[(offset + j) * 2] = grids_list[i][j * 2];
-            all_grids[(offset + j) * 2 + 1] = grids_list[i][j * 2 + 1];
-            all_strides[offset + j] = strides_list[i][j];
-        }
-        offset += grid_size;
-    }
-
-    // Apply grid and stride decoding
-    for (int i = 0; i < num_boxes && i < total_boxes; ++i) {
-        float* box = outputs + i * 85;
-
-        // outputs[..., :2] = (outputs[..., :2] + grids) * expanded_strides
-        box[0] = (box[0] + all_grids[i * 2]) * all_strides[i];
-        box[1] = (box[1] + all_grids[i * 2 + 1]) * all_strides[i];
-
-        // outputs[..., 2:4] = np.exp(outputs[..., 2:4]) * expanded_strides
-        box[2] = std::exp(box[2]) * all_strides[i];
-        box[3] = std::exp(box[3]) * all_strides[i];
-    }
-}
-
-std::vector<int> nms(const std::vector<cv::Rect2f>& boxes, const std::vector<float>& scores, float nms_thr) {
-    if (boxes.empty()) return {};
-
-    // Create indices and sort
-    std::vector<int> indices(boxes.size());
-    std::iota(indices.begin(), indices.end(), 0);
-    std::sort(indices.begin(), indices.end(), [&scores](int a, int b) {
-        return scores[a] > scores[b];
-    });
-
-    std::vector<int> keep;
-    std::vector<bool> suppressed(boxes.size(), false);
-
-    for (size_t i = 0; i < indices.size(); ++i) {
-        int idx = indices[i];
-        if (suppressed[idx]) continue;
-
-        keep.push_back(idx);
-
-        float x1_i = boxes[idx].x;
-        float y1_i = boxes[idx].y;
-        float x2_i = boxes[idx].x + boxes[idx].width;
-        float y2_i = boxes[idx].y + boxes[idx].height;
-        float area_i = boxes[idx].width * boxes[idx].height;
-
-        for (size_t j = i + 1; j < indices.size(); ++j) {
-            int idx_j = indices[j];
-            if (suppressed[idx_j]) continue;
-
-            float x1_j = boxes[idx_j].x;
-            float y1_j = boxes[idx_j].y;
-            float x2_j = boxes[idx_j].x + boxes[idx_j].width;
-            float y2_j = boxes[idx_j].y + boxes[idx_j].height;
-
-            float xx1 = std::max(x1_i, x1_j);
-            float yy1 = std::max(y1_i, y1_j);
-            float xx2 = std::min(x2_i, x2_j);
-            float yy2 = std::min(y2_i, y2_j);
-
-            float w = std::max(0.0f, xx2 - xx1);
-            float h = std::max(0.0f, yy2 - yy1);
-            float inter = w * h;
-
-            float area_j = boxes[idx_j].width * boxes[idx_j].height;
-            float ovr = inter / (area_i + area_j - inter);
-
-            if (ovr > nms_thr) {
-                suppressed[idx_j] = true;
-            }
+    // Normalization
+    for (int y = 0; y < img_padded.rows; ++y)
+    {
+        for (int x = 0; x < img_padded.cols; ++x)
+        {
+            cv::Vec3b pixel = img_padded.at<cv::Vec3b>(y, x);
+            img_float.at<cv::Vec3f>(y, x) = cv::Vec3f(
+                (pixel[0] - MEAN[0]) / STD[0],
+                (pixel[1] - MEAN[1]) / STD[1],
+                (pixel[2] - MEAN[2]) / STD[2]);
         }
     }
 
-    return keep;
+    return std::make_tuple(img_float, scale, std::make_tuple(pad_left, pad_top));
 }
 
-std::vector<Detection> multiclass_nms(const std::vector<cv::Rect2f>& boxes,
-                                      const std::vector<std::vector<float>>& scores,
-                                      int num_classes,
-                                      float nms_thr,
-                                      float score_thr) {
-    if (boxes.empty() || scores.empty()) return {};
-
-    // Find max class score and class ID for each box
-    std::vector<float> cls_scores(boxes.size());
-    std::vector<int> cls_inds(boxes.size());
-
-    for (size_t i = 0; i < boxes.size(); ++i) {
-        float max_score = -1.0f;
-        int max_idx = -1;
-        for (int c = 0; c < num_classes; ++c) {
-            if (scores[i][c] > max_score) {
-                max_score = scores[i][c];
-                max_idx = c;
-            }
-        }
-        cls_scores[i] = max_score;
-        cls_inds[i] = max_idx;
-    }
-
-    // Filter low-score boxes
-    std::vector<cv::Rect2f> valid_boxes;
-    std::vector<float> valid_scores;
-    std::vector<int> valid_cls_inds;
-    std::vector<int> valid_indices;
-
-    for (size_t i = 0; i < boxes.size(); ++i) {
-        if (cls_scores[i] > score_thr) {
-            valid_boxes.push_back(boxes[i]);
-            valid_scores.push_back(cls_scores[i]);
-            valid_cls_inds.push_back(cls_inds[i]);
-            valid_indices.push_back(i);
-        }
-    }
-
-    if (valid_boxes.empty()) return {};
-
-    // Execute NMS
-    std::vector<int> keep = nms(valid_boxes, valid_scores, nms_thr);
-
-    // Build results
-    std::vector<Detection> dets;
-    for (int idx : keep) {
-        Detection det;
-        det.x1 = valid_boxes[idx].x;
-        det.y1 = valid_boxes[idx].y;
-        det.x2 = valid_boxes[idx].x + valid_boxes[idx].width;
-        det.y2 = valid_boxes[idx].y + valid_boxes[idx].height;
-        det.score = valid_scores[idx];
-        det.class_id = valid_cls_inds[idx];
-        dets.push_back(det);
-    }
-
-    return dets;
-}
-
-cv::Mat vis(const cv::Mat& img,
-            const std::vector<Detection>& detections,
-            float conf_thresh,
-            const std::vector<std::string>& class_names) {
-    cv::Mat result = img.clone();
-
-    // Adjust font size based on image size
-    int img_height = img.rows;
-    int img_width = img.cols;
-    float font_scale = std::max(0.6f, std::min(1.2f,
-        static_cast<float>(std::sqrt(img_height * img_height + img_width * img_width)) * 0.0015f));
-    int thickness = std::max(2, static_cast<int>(font_scale * 2.5f));
-
-    // YOLOX color palette
-    static const std::vector<cv::Scalar> colors = {
-        cv::Scalar(0, 114, 189), cv::Scalar(217, 83, 25), cv::Scalar(237, 177, 32),
-        cv::Scalar(126, 47, 142), cv::Scalar(119, 172, 48), cv::Scalar(77, 190, 238),
-        cv::Scalar(162, 20, 47), cv::Scalar(77, 77, 77), cv::Scalar(153, 153, 153),
-        cv::Scalar(255, 0, 0), cv::Scalar(255, 128, 0), cv::Scalar(191, 191, 0),
-        cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255), cv::Scalar(170, 0, 255),
-        cv::Scalar(85, 85, 0), cv::Scalar(85, 170, 0), cv::Scalar(85, 255, 0),
-        cv::Scalar(170, 85, 0), cv::Scalar(170, 170, 0), cv::Scalar(170, 255, 0),
-        cv::Scalar(255, 85, 0), cv::Scalar(255, 170, 0), cv::Scalar(255, 255, 0),
-        cv::Scalar(0, 85, 128), cv::Scalar(0, 170, 128), cv::Scalar(0, 255, 128),
-        cv::Scalar(85, 0, 128), cv::Scalar(85, 85, 128), cv::Scalar(85, 170, 128),
-        cv::Scalar(85, 255, 128), cv::Scalar(170, 0, 128), cv::Scalar(170, 85, 128),
-        cv::Scalar(170, 170, 128), cv::Scalar(170, 255, 128), cv::Scalar(255, 0, 128),
-        cv::Scalar(255, 85, 128), cv::Scalar(255, 170, 128), cv::Scalar(255, 255, 128),
-        cv::Scalar(0, 85, 255), cv::Scalar(0, 170, 255), cv::Scalar(0, 255, 255),
-        cv::Scalar(85, 0, 255), cv::Scalar(85, 85, 255), cv::Scalar(85, 170, 255),
-        cv::Scalar(85, 255, 255), cv::Scalar(170, 0, 255), cv::Scalar(170, 85, 255),
-        cv::Scalar(170, 170, 255), cv::Scalar(170, 255, 255), cv::Scalar(255, 0, 255),
-        cv::Scalar(255, 85, 255), cv::Scalar(255, 170, 255), cv::Scalar(85, 0, 0),
-        cv::Scalar(128, 0, 0), cv::Scalar(170, 0, 0), cv::Scalar(213, 0, 0),
-        cv::Scalar(255, 0, 0), cv::Scalar(0, 43, 0), cv::Scalar(0, 85, 0),
-        cv::Scalar(0, 128, 0), cv::Scalar(0, 170, 0), cv::Scalar(0, 213, 0),
-        cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 43), cv::Scalar(0, 0, 85),
-        cv::Scalar(0, 0, 128), cv::Scalar(0, 0, 170), cv::Scalar(0, 0, 213),
-        cv::Scalar(0, 0, 255), cv::Scalar(0, 0, 0), cv::Scalar(36, 36, 36),
-        cv::Scalar(219, 219, 219), cv::Scalar(255, 255, 255)
-    };
-
-    for (const auto& det : detections) {
-        if (det.score < conf_thresh) continue;
-        if (det.class_id < 0 || det.class_id >= static_cast<int>(class_names.size())) continue;
-
-        int x0 = static_cast<int>(det.x1);
-        int y0 = static_cast<int>(det.y1);
-        int x1 = static_cast<int>(det.x2);
-        int y1 = static_cast<int>(det.y2);
-
-        cv::Scalar color = colors[det.class_id % colors.size()];
-
-        // Draw bounding box
-        cv::rectangle(result, cv::Point(x0, y0), cv::Point(x1, y1), color, thickness);
-
-        // Prepare text
-        std::string text = class_names[det.class_id] + ":" + cv::format("%.1f%%", det.score * 100);
-
-        // Calculate text size
-        int baseline = 0;
-        cv::Size txt_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-
-        // Draw text background
-        cv::Scalar txt_bk_color = color * 0.7;
-        cv::rectangle(result,
-                     cv::Point(x0, y0 + 1),
-                     cv::Point(x0 + txt_size.width + 1, y0 + static_cast<int>(1.5 * txt_size.height)),
-                     txt_bk_color, -1);
-
-        // Draw text
-        cv::Scalar txt_color = (cv::mean(color)[0] > 0.5) ? cv::Scalar(0, 0, 0) : cv::Scalar(255, 255, 255);
-        cv::putText(result, text,
-                   cv::Point(x0, y0 + txt_size.height),
-                   cv::FONT_HERSHEY_SIMPLEX, font_scale, txt_color, thickness);
-    }
-
-    return result;
-}
-
-void extract_boxes_and_scores(
-    float* output,
-    int num_boxes,
-    int num_classes,
-    float scale,
-    int pad_left,
-    int pad_top,
-    int img_width,
-    int img_height,
-    std::vector<cv::Rect2f>& boxes,
-    std::vector<std::vector<float>>& scores)
+cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point)
 {
-    boxes.clear();
-    scores.clear();
-    boxes.reserve(num_boxes);
-    scores.reserve(num_boxes);
+    if (float_img.empty() || float_img.type() != CV_32FC3)
+        return cv::Mat();
 
-    // Extract all boxes and scores
-    for (int i = 0; i < num_boxes; ++i) {
-        float* box_data = output + i * 85;
+    cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8SC3);
+    const float *src_ptr = (const float *)float_img.data;
+    int8_t *dst_ptr = (int8_t *)quantized_img.data;
 
-        // Format after demo_postprocess: [cx, cy, w, h, obj_conf, class0, ..., class79]
-        float cx = box_data[0];
-        float cy = box_data[1];
-        float w = box_data[2];
-        float h = box_data[3];
-
-        // Python: boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2]/2.
-        float x1 = cx - w / 2.0f;
-        float y1 = cy - h / 2.0f;
-        float x2 = cx + w / 2.0f;
-        float y2 = cy + h / 2.0f;
-
-        // Python: valid_boxes[:, [0, 2]] = (valid_boxes[:, [0, 2]] - pad_x) / scale
-        // Python: valid_boxes[:, [1, 3]] = (valid_boxes[:, [1, 3]] - pad_y) / scale
-        x1 = (x1 - pad_left) / scale;
-        y1 = (y1 - pad_top) / scale;
-        x2 = (x2 - pad_left) / scale;
-        y2 = (y2 - pad_top) / scale;
-
-        // Ensure coordinates are within image bounds
-        x1 = std::max(0.0f, std::min(static_cast<float>(img_width), x1));
-        y1 = std::max(0.0f, std::min(static_cast<float>(img_height), y1));
-        x2 = std::max(0.0f, std::min(static_cast<float>(img_width), x2));
-        y2 = std::max(0.0f, std::min(static_cast<float>(img_height), y2));
-
-        boxes.push_back(cv::Rect2f(x1, y1, x2 - x1, y2 - y1));
-
-        // Calculate class scores (obj_conf * cls_scores)
-        float obj_conf = box_data[4];
-        std::vector<float> cls_scores(num_classes);
-        for (int c = 0; c < num_classes; ++c) {
-            float cls_score = box_data[5 + c];
-            cls_scores[c] = obj_conf * cls_score;
-        }
-        scores.push_back(cls_scores);
+    int total_elements = float_img.total() * float_img.channels();
+    for (int i = 0; i < total_elements; ++i)
+    {
+        // Quantization
+        float val = std::round(src_ptr[i] / scale) + zero_point;
+        dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
     }
+    return quantized_img;
+}
+
+std::vector<Detection> postprocess(float *output_data, const std::vector<int> &output_shape,
+                                   std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
+                                   float conf_thresh, float iou_threshold)
+{
+    float scale = std::get<1>(input_tuple);
+    int pad_left = std::get<0>(std::get<2>(input_tuple));
+    int pad_top = std::get<1>(std::get<2>(input_tuple));
+
+    // Dynamic layout check: Is it [8400, 85] or [85, 8400]
+    bool channels_last = (output_shape.back() == 85);
+    int num_anchors = channels_last ? output_shape[output_shape.size() - 2] : output_shape.back();
+
+    std::vector<Detection> detections_orig;
+
+    for (int i = 0; i < num_anchors; ++i)
+    {
+        // Read object confidence
+        int obj_idx = channels_last ? (i * 85 + 4) : (4 * num_anchors + i);
+        float obj_conf = output_data[obj_idx];
+
+        // Early stopping
+        if (obj_conf < conf_thresh)
+            continue;
+
+        // Find Class ID with highest score
+        float max_cls_score = 0.0f;
+        int class_id = -1;
+        for (int c = 0; c < 80; ++c)
+        {
+            int cls_idx = channels_last ? (i * 85 + 5 + c) : ((5 + c) * num_anchors + i);
+            float cls_score = output_data[cls_idx];
+            if (cls_score > max_cls_score)
+            {
+                max_cls_score = cls_score;
+                class_id = c;
+            }
+        }
+
+        // Final score
+        float final_score = obj_conf * max_cls_score;
+
+        if (final_score >= conf_thresh)
+        {
+            // 1. Calculate Grid X, Y, and Stride
+            int grid_x, grid_y, stride;
+            if (i < 6400)
+            {
+                stride = 8;
+                grid_y = i / 80;
+                grid_x = i % 80;
+            }
+            else if (i < 8000)
+            {
+                stride = 16;
+                int local_i = i - 6400;
+                grid_y = local_i / 40;
+                grid_x = local_i % 40;
+            }
+            else
+            {
+                stride = 32;
+                int local_i = i - 8000;
+                grid_y = local_i / 20;
+                grid_x = local_i % 20;
+            }
+
+            int idx_cx = channels_last ? (i * 85 + 0) : (0 * num_anchors + i);
+            int idx_cy = channels_last ? (i * 85 + 1) : (1 * num_anchors + i);
+            int idx_w = channels_last ? (i * 85 + 2) : (2 * num_anchors + i);
+            int idx_h = channels_last ? (i * 85 + 3) : (3 * num_anchors + i);
+
+            float raw_cx = output_data[idx_cx];
+            float raw_cy = output_data[idx_cy];
+            float raw_w = output_data[idx_w];
+            float raw_h = output_data[idx_h];
+
+            // 2. YOLOX Grid Decoding using our calculated variables
+            float cx = (raw_cx + grid_x) * stride;
+            float cy = (raw_cy + grid_y) * stride;
+            float w = std::exp(raw_w) * stride;
+            float h = std::exp(raw_h) * stride;
+
+            float x1 = cx - (w / 2.0f);
+            float y1 = cy - (h / 2.0f);
+            float x2 = cx + (w / 2.0f);
+            float y2 = cy + (h / 2.0f);
+
+            // Reverse Letterbox Pad & Scale
+            float x1_orig = std::max(0.0f, (x1 - pad_left) / scale);
+            float y1_orig = std::max(0.0f, (y1 - pad_top) / scale);
+            float x2_orig = std::max(0.0f, (x2 - pad_left) / scale);
+            float y2_orig = std::max(0.0f, (y2 - pad_top) / scale);
+
+            detections_orig.push_back({x1_orig, y1_orig, x2_orig, y2_orig, final_score, class_id});
+        }
+    }
+
+    return nms_by_class(detections_orig, iou_threshold);
+}
+
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections)
+{
+    cv::Mat drawn_image = image.clone();
+
+    for (const auto &det : detections)
+    {
+        int class_id = det.class_id;
+        if (class_id < 0 || class_id >= 80)
+            continue;
+
+        // Generate color based on class_id using HSV
+        float hue = fmod(class_id * 137.508f, 360.0f);
+        cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(hue / 2.0f, 204, 230));
+        cv::Mat rgb;
+        cv::cvtColor(hsv, rgb, cv::COLOR_HSV2BGR);
+        cv::Scalar color(rgb.at<cv::Vec3b>(0, 0)[0], rgb.at<cv::Vec3b>(0, 0)[1], rgb.at<cv::Vec3b>(0, 0)[2]);
+
+        cv::rectangle(drawn_image,
+                      cv::Point(static_cast<int>(det.x1), static_cast<int>(det.y1)),
+                      cv::Point(static_cast<int>(det.x2), static_cast<int>(det.y2)),
+                      color, 2);
+
+        std::string label = std::string(COCO_CLASSES[class_id]) + ": " + cv::format("%.2f", det.score);
+        int baseline = 0;
+        cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseline);
+
+        int label_x = static_cast<int>(det.x1);
+        int label_y = static_cast<int>(det.y1) - 5;
+        if (label_y < text_size.height)
+            label_y = static_cast<int>(det.y1) + text_size.height + 5;
+
+        cv::rectangle(drawn_image,
+                      cv::Point(label_x, label_y - text_size.height - baseline),
+                      cv::Point(label_x + text_size.width, label_y + baseline),
+                      color, cv::FILLED);
+
+        int brightness = (color[0] + color[1] + color[2]) / 3;
+        cv::Scalar text_color = brightness < 128 ? cv::Scalar(255, 255, 255) : cv::Scalar(0, 0, 0);
+
+        cv::putText(drawn_image, label,
+                    cv::Point(label_x, label_y),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1, cv::LINE_AA);
+    }
+    return drawn_image;
 }

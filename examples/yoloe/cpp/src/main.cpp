@@ -14,190 +14,149 @@
  * limitations under the License.
  */
 
-
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <vector>
-#include <cmath>
-#include <algorithm>
+#include <chrono>
+#include <tuple>
+#include <iomanip>
 #include <opencv2/opencv.hpp>
-#include "nn_sdk.h"
+#include <filesystem>
+#include "postprocess.h"
+#include "nnsdk2.h"
 #include "model_loader.h"
 
+const int MODEL_INPUT_WIDTH = 640;
+const int MODEL_INPUT_HEIGHT = 640;
+const float SCORE_THRESHOLD = 0.7f;
+const float NMS_THRESHOLD = 0.05f;
+namespace fs = std::filesystem;
 
-#define HEIGHT 288
-#define WIDTH 512
-#define NUM_BOX 3024
-
-struct PreprocessParam {
-    float scale;
-    int pad_x;
-    int pad_y;
-    int ori_w;
-    int ori_h;
-};
-
-
-struct Box {
-    int x1, y1, x2, y2;
-    float conf;
-};
-
-
-struct PostprocessParam {
-    float conf_thresh = 0.4f;
-    float nms_thresh = 0.5f;
-};
-
-
-static int preprocess(const cv::Mat& src, cv::Mat& dst, PreprocessParam& param) {
-    int h = 0;
-    int w = 0;
-    float scale = 0.0f;
-    int nh = 0;
-    int nw = 0;
-    cv::Mat img_resized;
-    h = src.rows;
-    w = src.cols;
-    scale = std::min(HEIGHT / static_cast<float>(h),
-                        WIDTH / static_cast<float>(w));
-    nh = static_cast<int>(h * scale);
-    nw = static_cast<int>(w * scale);
-    cv::resize(src, img_resized, cv::Size(nw, nh));
-
-    int top = (HEIGHT - nh) / 2;
-    int left = (WIDTH - nw) / 2;
-
-    cv::Mat back(HEIGHT,WIDTH, CV_8UC3, cv::Scalar(114, 114, 114));
-    img_resized.copyTo(back(cv::Rect(left, top, nw, nh)));
-    back.convertTo(dst, CV_32F, 1.0 / 255.0);
-
-    param.scale = scale;
-    param.pad_x = left;
-    param.pad_y = top;
-    param.ori_w = w;
-    param.ori_h = h;
-
-    return 0;
-}
-
-
-
-
-static int postprocess(const float* nn_box_output, const float* nn_conf_output,
-                            const PreprocessParam& pre_param,
-                            const PostprocessParam& post_param,
-                            std::vector<Box>& boxes) {
-    std::vector<cv::Rect> rects;
-    std::vector<float> confs;
-    for (int i = 0; i < NUM_BOX; i++) {
-        float conf = 1/(1 + std::exp(-nn_conf_output[i]));
-        if (conf < post_param.conf_thresh) continue;
-
-        float cx = nn_box_output[0 * NUM_BOX + i];
-        float cy = nn_box_output[1 * NUM_BOX + i];
-        float w = nn_box_output[2 * NUM_BOX + i];
-        float h = nn_box_output[3 * NUM_BOX + i];
-
-        float x1 = cx - w / 2;
-        float y1 = cy - h / 2;
-
-        int ori_x1 = static_cast<int>((x1 - pre_param.pad_x) / pre_param.scale);
-        int ori_y1 = static_cast<int>((y1 - pre_param.pad_y) / pre_param.scale);
-        int ori_w = static_cast<int>(w / pre_param.scale);
-        int ori_h = static_cast<int>(h / pre_param.scale);
-
-        ori_x1 = std::max(0, std::min(ori_x1, pre_param.ori_w - 1));
-        ori_y1 = std::max(0, std::min(ori_y1, pre_param.ori_h - 1));
-        ori_w = std::min(ori_w, pre_param.ori_w - ori_x1);
-        ori_h = std::min(ori_h, pre_param.ori_h - ori_y1);
-        if (ori_w <= 0 || ori_h <= 0) continue;
-
-        confs.push_back(conf);
-        rects.emplace_back(ori_x1, ori_y1, ori_w, ori_h);
+int main(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> [labels.txt (optional)]\n";
+        return 0;
     }
 
-    std::vector<int> indices;
-    cv::dnn::NMSBoxes(rects, confs, post_param.conf_thresh, post_param.nms_thresh, indices);
-    for (auto i : indices) {
-        auto& rect = rects[i];
-        Box box;
-        box.x1 = rect.x;
-        box.y1 = rect.y;
-        box.x2 = rect.x + rect.width;
-        box.y2 = rect.y + rect.height;
-        box.conf = confs[i];
-        boxes.push_back(box);
-    }
-
-    return 0;
-}
-
-
-int main(int argc, char** argv) {
     std::string model_path = argv[1];
-    std::string image_path = argv[2];
+    std::string labels_path = "../input/labels.txt";
 
-    void* context = init_network(model_path.c_str());
-    if (!context) {
-        std::cerr << "Failed to initialize network." << std::endl;
+    if (argc >= 4)
+    {
+        labels_path = argv[3];
+    }
+
+    std::cout << "YOLOe Demo" << std::endl;
+
+    if (!fs::exists(labels_path))
+    {
+        std::cerr << "Error: Labels file not found at path: " << labels_path << std::endl;
         return -1;
     }
 
-    cv::Mat img = cv::imread(image_path);
-    if (img.empty()) {
-        std::cerr << "Failed to load image from " << image_path << std::endl;
-        uninit_network(context);
+    std::string output_dir = "yoloe_result";
+    fs::create_directory(output_dir);
+
+    std::vector<std::string> labels = load_labels(labels_path);
+
+    // 1. Initialize Network
+    void *context = nullptr;
+    int ret = init_network(model_path, context);
+
+    if (ret != AMLNN_SUCCESS)
+    {
+        std::cerr << "Failed to initialize network. Error: " << ret << std::endl;
         return -1;
     }
 
-    cv::Mat img_rgb, processed_img;
-    cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
-    PreprocessParam pre_param;
-    preprocess(img_rgb, processed_img, pre_param);
-
-    nn_input inData;
-    memset(&inData, 0, sizeof(nn_input));
-    inData.input_type = BINARY_RAW_DATA;
-    inData.input = processed_img.data;
-    inData.input_index = 0;
-    inData.size = WIDTH * HEIGHT * 3 * sizeof(float);
-
-    if (aml_module_input_set(context, &inData) != 0) {
-         std::cerr << "Failed to set input." << std::endl;
-         uninit_network(context);
-         return -1;
+    // Query IO numbers to ensure we have exactly 6 outputs
+    amlnn_input_output_num io_num;
+    amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (io_num.n_output != 6)
+    {
+        std::cerr << "Warning: Expected 6 outputs (3 cls, 3 bbox heads), but model has "
+                  << io_num.n_output << " outputs." << std::endl;
     }
 
-    aml_output_config_t outconfig;
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outconfig.format = AML_OUTDATA_FLOAT32;
+    // Query Input Attribute for Scale and Zero Point
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
-    nn_output* outdata = (nn_output*)aml_module_output_get(context, outconfig);
-    if (!outdata) {
-         std::cerr << "Failed to run network (get output)." << std::endl;
-         uninit_network(context);
-         return -1;
+    // Cache Output Shapes
+    std::vector<std::vector<int>> out_shapes;
+    for (int i = 0; i < io_num.n_output; i++)
+    {
+        amlnn_tensor_attr curr = query_output_attr(context, i);
+        out_shapes.push_back(get_tensor_shape(curr));
     }
 
-    float* box_output = (float*)outdata->out[1].buf;
-    float* conf_output = (float*)outdata->out[2].buf;
+    std::vector<amlnn_output> outData(io_num.n_output);
 
-    PostprocessParam post_param;
-    std::vector<Box> boxes;
-    postprocess(box_output, conf_output, pre_param, post_param, boxes);
+    for (auto &it : fs::directory_iterator(argv[2]))
+    {
+        if (!it.is_regular_file())
+            continue;
 
-    std::cout << "Objects:\n";
-    for (auto& box : boxes) {
-        std::cout << "[ " << box.x1 << ", " << box.y1 << ", " << box.x2 << ", " << box.y2 << " ]\n";
+        // 2. Load Image
+        cv::Mat img = cv::imread(it.path().string());
+        if (img.empty())
+            continue;
+
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
+        std::cout << "============================================================" << std::endl;
+
+        // 3. Preprocess
+        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
+        cv::Mat quantized_img = quantize_input(preprocessed, input_attr.scale, input_attr.zp);
+
+        // 4. Set input, run inference, and Get Outputs
+        size_t input_size = input_attr.n_elems * sizeof(int8_t);
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+        if (!run_network(context, quantized_img.data, input_size, outData))
+        {
+            std::cerr << "Failed to run network" << std::endl;
+            return -1;
+        }
+
+        if (outData.empty())
+            return -1;
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
+        std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
+
+        // Prepare pointers for the 6 outputs
+        std::vector<float *> out_ptrs;
+        for (int i = 0; i < io_num.n_output; ++i)
+        {
+            out_ptrs.push_back((float *)outData[i].buf);
+        }
+
+        // 5. Postprocess (6-Output Structure)
+        std::vector<Detection> detections = postprocess(
+            out_ptrs, out_shapes,
+            std::make_tuple(preprocessed, scale, pad),
+            SCORE_THRESHOLD,
+            NMS_THRESHOLD,
+            MODEL_INPUT_WIDTH);
+
+        std::cout << "Detections after NMS: " << detections.size() << std::endl;
+
+        // 6. Draw and Save
+        cv::Mat result_img = draw_detections(img, detections, labels);
+        std::string out_path = output_dir + "/" + it.path().filename().string();
+        cv::imwrite(out_path, result_img);
+        std::cout << "Result saved to: " << out_path << std::endl;
     }
-    std::cout << std::endl;
 
+    std::cout << "============================================================" << std::endl
+              << std::endl;
+
+    // 7. Cleanup
     uninit_network(context);
 
     return 0;
 }
-
-

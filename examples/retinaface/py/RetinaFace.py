@@ -20,13 +20,15 @@ import os
 import cv2
 import glob
 import argparse
-import time
 import numpy as np
 from pathlib import Path
-from amlnnlite.api import AMLNNLite
+from amlnn.api import AMLNN
+
+MEAN = np.array([104, 117, 123], dtype=np.float32)
+STD  = np.array([1, 1, 1], dtype=np.float32)
 
 class PriorBox:
-    def __init__(self, image_size=(320, 320)):
+    def __init__(self, image_size=(640, 640)):
         self.image_size = image_size
         self.steps = [8, 16, 32]
         self.min_sizes = [[16, 32], [64, 128], [256, 512]]
@@ -86,14 +88,14 @@ def postprocess_retinaface(outputs, priors, conf_thresh=0.5, nms_thresh=0.4):
     scores = conf[:, 1]
     mask = scores > conf_thresh
     if not np.any(mask): return [], [], []
-    
+
     boxes = decode_boxes(loc[mask], priors[mask])
     landms = decode_landmarks(landms[mask], priors[mask])
     scores = scores[mask]
     keep = nms(np.hstack((boxes, scores[:, None])), nms_thresh)
     return boxes[keep], landms[keep], scores[keep]
 
-def preprocess(img_path, input_size=(320, 320)):
+def preprocess(img_path, input_size=(640, 640), s=1.015221, zp=-12, tensor_type=2):
     img = cv2.imread(img_path)
     if img is None: return None, None, 0, 0, 0
     h0, w0 = img.shape[:2]
@@ -103,31 +105,38 @@ def preprocess(img_path, input_size=(320, 320)):
     canvas = np.full((input_size[1], input_size[0], 3), 128, dtype=np.uint8)
     pad_x, pad_y = (input_size[0] - nw) // 2, (input_size[1] - nh) // 2
     canvas[pad_y:pad_y + nh, pad_x:pad_x + nw] = resized
-    return np.expand_dims(canvas.astype(np.float32), axis=0), img, scale, pad_x, pad_y
+    canvas = np.expand_dims((canvas.astype(np.float32) - MEAN) / STD, axis=0)
+
+    if tensor_type == 2:
+        canvas = (canvas / s + zp).astype(np.int8)
+    elif tensor_type == 3:
+        canvas = (canvas / s + zp).astype(np.uint8)
+
+    return canvas, img, scale, pad_x, pad_y
 
 def main():
-    parser = argparse.ArgumentParser(description="RetinaFace AMLNNLite Demo")
-    parser.add_argument('--board-work-path', type=str, default='/data/local/tmp')
+    parser = argparse.ArgumentParser(description="RetinaFace AMLNN Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
-    parser.add_argument('--image-dir', required=True, help='Directory of test images')
-    parser.add_argument('--run-cycles', type=int, default=1, help='Inference cycles')
-    parser.add_argument('--loglevel', type=str, default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
+    parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     args = parser.parse_args()
 
-    amlnn = AMLNNLite()
-    amlnn.config(board_work_path=args.board_work_path, 
-                 model_path=args.model_path, 
-                 run_cycles=args.run_cycles, 
-                 loglevel=args.loglevel)
-    amlnn.init()
+    amlnn = AMLNN()
 
-    priors = PriorBox((320, 320)).forward()
+    amlnn.init_runtime(mode="native", enable_perf=True)
+    
+    amlnn.load_model(path=args.model_path)
+
+    tensor_info = amlnn.get_tensor_info()
+
+    print(amlnn.get_sdk_version())
+
+    priors = PriorBox((640, 640)).forward()
     image_files = []
     for ext in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
     image_files.sort()
-    
+
     if not image_files:
         print(f"No images found in {args.image_dir}")
         amlnn.uninit(); return
@@ -141,10 +150,14 @@ def main():
         print(f"Processing image {idx}/{len(image_files)}: {Path(img_path).name}")
         print("=" * 60)
 
-        inp, orig, scale, pad_x, pad_y = preprocess(img_path)
+        tensor_attr = tensor_info["inputs"][0]
+        s = float(tensor_attr["scale"])
+        zp = int(tensor_attr["zp"])
+        tensor_type = int(tensor_attr["type"])
+        inp, orig, scale, pad_x, pad_y = preprocess(img_path, s=s, zp=zp, tensor_type=tensor_type)
         if inp is None: continue
-        
-        outputs = amlnn.inference(inp, inputs_data_format='NHWC')
+
+        outputs = amlnn.inference(inp)
 
         boxes, landms, scores = postprocess_retinaface(outputs, priors)
 
@@ -156,22 +169,30 @@ def main():
             print("    No objects detected")
 
         for box, lm in zip(boxes, landms):
-            x1 = int((box[0] * 320 - pad_x) / scale)
-            y1 = int((box[1] * 320 - pad_y) / scale)
-            x2 = int((box[2] * 320 - pad_x) / scale)
-            y2 = int((box[3] * 320 - pad_y) / scale)
+            x1 = int((box[0] * 640 - pad_x) / scale)
+            y1 = int((box[1] * 640 - pad_y) / scale)
+            x2 = int((box[2] * 640 - pad_x) / scale)
+            y2 = int((box[3] * 640 - pad_y) / scale)
             cv2.rectangle(orig, (x1, y1), (x2, y2), (0, 255, 0), 2)
             for lx, ly in lm.reshape(5, 2):
-                cv2.circle(orig, (int((lx*320-pad_x)/scale), int((ly*320-pad_y)/scale)), 2, (0, 0, 255), -1)
-
+                cv2.circle(orig, (int((lx*640-pad_x)/scale), int((ly*640-pad_y)/scale)), 2, (0, 0, 255), -1)
+            cv2.putText(
+                orig,
+                f"{sc:.2f}",
+                (x1, y1 - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1
+            )
         save_path = os.path.join(res_dir, Path(img_path).name)
         cv2.imwrite(save_path, orig)
         print(f"    Result saved to: {save_path}")
 
-    if args.loglevel == 'INFO':
-        print("\nI Performance analysis visualization starting...")
-        
-    amlnn.visualize()
+    print(amlnn.get_perf_info())
+
+    amlnn.perf_visualize()
+
     amlnn.uninit()
 
 if __name__ == "__main__":

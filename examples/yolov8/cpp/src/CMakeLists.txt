@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10...3.27)
-project(yolo_world_demo)
+project(yolov8_demo)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -26,7 +26,6 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 add_executable(yolov8_demo
     main.cpp
     postprocess.cpp
-    postprocess.h
     ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 

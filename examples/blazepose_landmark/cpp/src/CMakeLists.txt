@@ -26,8 +26,7 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 add_executable(blazepose_landmark_demo
     main.cpp
     postprocess.cpp
-    postprocess.h
-    ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
+   ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 
 target_link_libraries(blazepose_landmark_demo

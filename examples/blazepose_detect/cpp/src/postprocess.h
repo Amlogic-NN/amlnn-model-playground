@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef _AMLNN_BLAZEPOSE_DETECT_POSTPROCESS_H_
-#define _AMLNN_BLAZEPOSE_DETECT_POSTPROCESS_H_
+#pragma once
 
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <tuple>
 #include <string>
+#include "nnsdk2.h"
 
 #include "anchors.h"
 
@@ -35,11 +35,14 @@ struct BlazePoseDetection
 // COCO class names (80 classes)
 extern const char *COCO_CLASSES[80];
 
+// Helper function to extract meaningful dimensions (ignores batch dim 1)
+std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
+
 // Preprocess image with letterbox resizing
 std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
 
 // Quantize float32 image to int8 for model input
-cv::Mat quantize_input(const cv::Mat &float_img, float scale = 0.007843137718737125, int8_t zero_point = -1);
+cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point);
 
 // Postprocess blazepose_detect outputs with DFL decoding
 std::vector<BlazePoseDetection> postprocess(float *raw_boxes, float *raw_scores,
@@ -49,4 +52,3 @@ std::vector<BlazePoseDetection> postprocess(float *raw_boxes, float *raw_scores,
 // Draw detections on image
 cv::Mat draw_detections(cv::Mat image, const std::vector<BlazePoseDetection> &detections);
 
-#endif // _AMLNN_BLAZEPOSE_DETECT_POSTPROCESS_H_

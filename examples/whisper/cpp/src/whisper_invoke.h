@@ -20,7 +20,8 @@
 #include <string>
 #include <vector>
 #include <map>
-#include "nn_sdk.h"
+#include <cstdint>
+#include "nnsdk2.h"
 
 struct Input_Decoder {
     float * input_0;
@@ -31,7 +32,7 @@ struct Input_Decoder {
 
 void* init_network_file(const char *model_path);
 std::vector<float> do_pre_process(std::string fname_inp);
-std::vector<float> run_network_encoder_process(void *qcontext, std::vector<float> input_ids);
+std::vector<float> run_network_encoder_process(void *qcontext, const std::vector<float>& input_ids);
 std::string run_network_decoder(void *qcontext_sec, Input_Decoder* input_data);
 bool is_finish_end();
 int destroy_network(void *qcontext);

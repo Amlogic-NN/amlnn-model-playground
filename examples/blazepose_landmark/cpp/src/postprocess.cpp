@@ -17,238 +17,9 @@
 #include "postprocess.h"
 #include <iostream>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 #include <algorithm>
-#include <unordered_map>
-
-#define LOGI(...)            \
-    do                       \
-    {                        \
-        printf(__VA_ARGS__); \
-        printf("\n");        \
-    } while (0)
-#define LOGE(...)                     \
-    do                                \
-    {                                 \
-        fprintf(stderr, __VA_ARGS__); \
-        fprintf(stderr, "\n");        \
-    } while (0)
-
-// SHOW class names (1 classes)
-const char *SHOW_CLASSES[1] = {"lm"};
-
-inline float sigmoid(float x)
-{
-    return 1.0f / (1.0f + std::exp(-x));
-}
-
-struct ROI
-{
-    float x_center;
-    float y_center;
-    float scale;
-    float theta;
-};
-
-ROI detection_to_roi(const std::vector<float> &detection, int kp1 = 0, int kp2 = 1)
-{
-    float theta0 = 90.f * M_PI / 180.f;
-    float dscale = 1.1f; // 1.0 * 256 / 224; // 1.1f;
-    float dy = 0.f;
-
-    float x_center = detection[4 + 2 * kp1];
-    float y_center = detection[4 + 2 * kp1 + 1];
-    float x1 = detection[4 + 2 * kp2];
-    float y1 = detection[4 + 2 * kp2 + 1];
-
-    float roi_scale = std::sqrt((x_center - x1) * (x_center - x1) + (y_center - y1) * (y_center - y1)) * 2.f;
-    y_center += dy * roi_scale;
-    roi_scale *= dscale;
-
-    float theta = std::atan2(detection[4 + 2 * kp1 + 1] - detection[4 + 2 * kp2 + 1], detection[4 + 2 * kp1] - detection[4 + 2 * kp2]) - theta0;
-
-    return {x_center, y_center, roi_scale, theta};
-}
-
-cv::Mat extract_roi(cv::Mat &frame, const ROI &roi, int resolution, cv::Mat &affine)
-{
-    cv::Point2f src_pts[3];
-    src_pts[0] = cv::Point2f(-roi.scale / 2.f, -roi.scale / 2.f); // will map to (0,0)
-    src_pts[1] = cv::Point2f(-roi.scale / 2.f, roi.scale / 2.f);  // will map to (0,res-1)
-    src_pts[2] = cv::Point2f(roi.scale / 2.f, -roi.scale / 2.f);  // will map to (res-1,0)
-    float cos_theta = std::cos(roi.theta);
-    float sin_theta = std::sin(roi.theta);
-    for (int i = 0; i < 3; i++)
-    {
-        float x = src_pts[i].x;
-        float y = src_pts[i].y;
-        src_pts[i].x = roi.x_center + x * cos_theta - y * sin_theta;
-        src_pts[i].y = roi.y_center + x * sin_theta + y * cos_theta;
-    }
-    cv::Point2f dst_pts[3] = {
-        cv::Point2f(0.f, 0.f),
-        cv::Point2f(0.f, resolution - 1.f),
-        cv::Point2f(resolution - 1.f, 0.f)};
-
-    cv::Mat roi_img;
-    cv::Mat M = cv::getAffineTransform(src_pts, dst_pts);
-    cv::invertAffineTransform(M, affine);
-    cv::warpAffine(frame, roi_img, M, cv::Size(resolution, resolution));
-
-    return roi_img;
-}
-
-std::tuple<cv::Mat, cv::Mat> preprocess(cv::Mat img, std::vector<std::vector<float>> &detections, std::tuple<int, int> new_shape)
-{
-    cv::Mat img_rgb;
-
-    if (img.empty())
-    {
-        LOGE("Preprocess received empty image");
-        return {};
-    }
-
-    // Convert to RGB
-    if (img.channels() == 4)
-        cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
-    else if (img.channels() == 3)
-        cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
-    else
-        img_rgb = img.clone();
-
-    ROI roi = detection_to_roi(detections[0]); // get the first bounding box
-    cv::Mat affine;
-    cv::Mat roi_img = extract_roi(img_rgb, roi, IMAGE_SIZE, affine);
-
-    cv::Mat img_float;
-    roi_img.convertTo(img_float, CV_32F, 1.0 / 255.0);
-
-    return std::make_tuple(img_float, affine);
-}
-
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int16_t zero_point)
-{
-    if (float_img.empty() || float_img.type() != CV_32FC3)
-    {
-        LOGE("quantize_input: Invalid input image (must be CV_32FC3)");
-        return cv::Mat();
-    }
-
-    cv::Mat quantized_img(float_img.rows, float_img.cols, CV_16SC3);
-    const float *src_ptr = (const float *)float_img.data;
-    int16_t *dst_ptr = (int16_t *)quantized_img.data;
-
-    int total_elements = float_img.total() * float_img.channels();
-    // for (int i = 0; i < total_elements; ++i)
-    // {
-    //     dst_ptr[i] = static_cast<int16_t>(std::round(src_ptr[i] / scale + zero_point));
-    // }
-    for (int i = 0; i < total_elements; ++i)
-    {
-        int32_t q = static_cast<int32_t>(std::round(src_ptr[i] / scale));
-        q = std::max(-32768, std::min(32767, q));
-        dst_ptr[i] = static_cast<int16_t>(q);
-    }
-
-    return quantized_img;
-}
-
-void blazepose_postprocess(const float *landmarks, float *normalized_landmarks)
-{
-    if (!landmarks || !normalized_landmarks)
-        return;
-
-    for (int j = 0; j < NUM_LANDMARKS; j++)
-    {
-        float x = landmarks[j * LANDMARK_FEATURE_DIM + 0] / IMAGE_SIZE;
-        float y = landmarks[j * LANDMARK_FEATURE_DIM + 1] / IMAGE_SIZE;
-        float z = landmarks[j * LANDMARK_FEATURE_DIM + 2] / IMAGE_SIZE;
-        float visibility = landmarks[j * LANDMARK_FEATURE_DIM + 3];
-        float presence = landmarks[j * LANDMARK_FEATURE_DIM + 4];
-
-        float score = sigmoid(fminf(visibility, presence));
-        normalized_landmarks[j * LANDMARK_OUT_DIM + 0] = x;
-        normalized_landmarks[j * LANDMARK_OUT_DIM + 1] = y;
-        normalized_landmarks[j * LANDMARK_OUT_DIM + 2] = z;
-        normalized_landmarks[j * LANDMARK_OUT_DIM + 3] = score;
-    }
-}
-
-/**
- * Denormalize landmarks: map normalized coordinates back to original image using affine
- * @param landmarks   Input/Output: [NUM_LANDMARKS * LANDMARK_OUT_DIM], first three dimensions are x, y, z
- * @param affine      Input: [2 x 3] affine matrix (CV_32F)
- */
-void blazepose_denorm_landmarks(float *landmarks, const cv::Mat &affine)
-{
-    if (!landmarks || affine.empty() || affine.rows != 2 || affine.cols != 3)
-    {
-        return;
-    }
-
-    const double *a = affine.ptr<double>();
-    double a00 = a[0], a01 = a[1], a02 = a[2];
-    double a10 = a[3], a11 = a[4], a12 = a[5];
-    for (int j = 0; j < NUM_LANDMARKS; j++)
-    {
-        float *p = landmarks + j * LANDMARK_OUT_DIM;
-        // scale to input resolution
-        float x = p[0] * IMAGE_SIZE;
-        float y = p[1] * IMAGE_SIZE;
-        float z = p[2] * IMAGE_SIZE;
-
-        // apply affine transform
-        float new_x = a00 * x + a01 * y + a02;
-        float new_y = a10 * x + a11 * y + a12;
-
-        p[0] = new_x;
-        p[1] = new_y;
-        p[2] = z;
-
-    }
-}
-
-std::vector<BlazePoseLandmark> postprocess(nn_output *outdata, const cv::Mat &affine)
-{
-    // keep all outputs, even if unused
-    float *world_landmarks = (float *)outdata->out[0].buf;
-    float *heatmap = (float *)outdata->out[1].buf;
-    float *flags = (float *)outdata->out[2].buf;
-    float *landmarks = (float *)outdata->out[4].buf;
-
-    float *normalized_landmarks =
-        new float[NUM_LANDMARKS * LANDMARK_OUT_DIM]();
-
-    blazepose_postprocess(landmarks, normalized_landmarks);
-
-    // refine_landmark_from_heatmap(normalized_landmarks, 39, heatmap, 64, 64);
-
-    blazepose_denorm_landmarks(normalized_landmarks, affine);
-
-    std::vector<BlazePoseLandmark> pose_res;
-    pose_res.reserve(1);
-
-    BlazePoseLandmark pose;
-    pose.landmarks.resize(NUM_LANDMARKS);
-
-    for (int i = 0; i < NUM_LANDMARKS; ++i)
-    {
-        int base = i * LANDMARK_OUT_DIM;
-
-        double x = normalized_landmarks[base + 0];     // x
-        double y = normalized_landmarks[base + 1];     // y
-        double z = normalized_landmarks[base + 2];     // z
-        double score = normalized_landmarks[base + 3]; // score
-
-        pose.landmarks[i] = {x, y, z, score};
-    }
-
-    pose_res.push_back(pose);
-
-    delete[] normalized_landmarks;
-    normalized_landmarks = nullptr;
-
-    return pose_res;
-}
 
 static const std::vector<std::pair<int, int>> POSE_CONNECTIONS = {
     // Face
@@ -294,6 +65,234 @@ static const std::vector<std::pair<int, int>> POSE_CONNECTIONS = {
     {28, 30},
     {28, 32},
     {30, 32}};
+
+#define LOGE(...)                     \
+    do                                \
+    {                                 \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n");        \
+    } while (0)
+
+static float sigmoid(float x)
+{
+    return 1.0f / (1.0f + std::exp(-x));
+}
+
+std::tuple<cv::Mat, ROI> preprocess(cv::Mat img, std::vector<std::vector<float>> &detections, std::tuple<int, int> new_shape)
+{
+    cv::Mat img_rgb;
+    if (img.empty())
+    {
+        LOGE("Preprocess received empty image");
+        return {};
+    }
+
+    if (img.channels() == 4)
+        cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
+    else if (img.channels() == 3)
+        cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
+    else
+        img_rgb = img.clone();
+
+    if (detections.empty())
+    {
+        LOGE("No detections provided");
+        return {};
+    }
+
+    auto &det = detections[0];
+    float x_center = det[4];
+    float y_center = det[5];
+    float x_scale = det[6];
+    float y_scale = det[7];
+
+    float box_size = std::sqrt((x_scale - x_center) * (x_scale - x_center) + (y_scale - y_center) * (y_scale - y_center)) * 2.f;
+    box_size *= 1.25f;
+
+    float angle = (M_PI * 90.f / 180.f) - std::atan2(-(y_scale - y_center), x_scale - x_center);
+    float rotation = angle - 2.f * M_PI * std::floor((angle - (-M_PI)) / (2.f * M_PI));
+
+    cv::RotatedRect rotated_rect(cv::Point2f(x_center, y_center), cv::Size2f(box_size, box_size), rotation * 180.f / M_PI);
+    cv::Point2f pts1[4];
+    rotated_rect.points(pts1);
+
+    int w = std::get<1>(new_shape);
+    int h = std::get<0>(new_shape);
+
+    cv::Point2f pts2[4] = {
+        cv::Point2f(0.f, (float)h),
+        cv::Point2f(0.f, 0.f),
+        cv::Point2f((float)w, 0.f),
+        cv::Point2f((float)w, (float)h)};
+
+    cv::Mat M = cv::getPerspectiveTransform(pts1, pts2);
+    cv::Mat processed_img;
+    cv::warpPerspective(img_rgb, processed_img, M, cv::Size(w, h), cv::INTER_LINEAR, cv::BORDER_REPLICATE);
+
+    cv::Mat img_float;
+    processed_img.convertTo(img_float, CV_32F, 1.0 / 255.0);
+
+    ROI roi = {x_center, y_center, box_size, rotation};
+
+    return std::make_tuple(img_float, roi);
+}
+
+cv::Mat quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+{
+    // Type 0 is Float32 (No quantization needed)
+    if (attr.type == 0)
+        return float_img.clone();
+
+    // Type 3 is UINT8, otherwise assume INT8
+    int mat_type = (attr.type == 3) ? CV_8UC3 : CV_8SC3;
+    cv::Mat quantized_img(float_img.rows, float_img.cols, mat_type);
+
+    const float *src = (const float *)float_img.data;
+    int total = float_img.total() * float_img.channels();
+
+    if (attr.type == 3)
+    { // UINT8
+        uint8_t *dst = (uint8_t *)quantized_img.data;
+        for (int i = 0; i < total; ++i)
+        {
+            float val = std::round(src[i] / attr.scale) + attr.zp;
+            dst[i] = static_cast<uint8_t>(std::clamp(val, 0.f, 255.f));
+        }
+    }
+    else
+    { // INT8
+        int8_t *dst = (int8_t *)quantized_img.data;
+        for (int i = 0; i < total; ++i)
+        {
+            float val = std::round(src[i] / attr.scale) + attr.zp;
+            dst[i] = static_cast<int8_t>(std::clamp(val, -128.f, 127.f));
+        }
+    }
+    return quantized_img;
+}
+
+void refine_landmark(std::vector<std::vector<float>> &landmarks, const float *heatmap, int hm_w, int hm_h, int hm_c)
+{
+    float min_confidence = 0.5f;
+    int kernel_size = 9;
+    int offset = kernel_size;
+
+    for (size_t i = 0; i < landmarks.size(); ++i)
+    {
+        int col = static_cast<int>(landmarks[i][0] * hm_w);
+        int row = static_cast<int>(landmarks[i][1] * hm_h);
+
+        if (!(col >= 0 && col < hm_w && row >= 0 && row < hm_h))
+        {
+            continue;
+        }
+
+        int c0 = std::max(0, col - offset);
+        int c1 = std::min(hm_w, col + offset + 1);
+        int r0 = std::max(0, row - offset);
+        int r1 = std::min(hm_h, row + offset + 1);
+
+        float val_sum = 0.0f;
+        float weighted_col = 0.0f;
+        float weighted_row = 0.0f;
+        float max_conf = 0.0f;
+
+        for (int r = r0; r < r1; ++r)
+        {
+            for (int c = c0; c < c1; ++c)
+            {
+                float val = heatmap[r * hm_w * hm_c + c * hm_c + i];
+                float conf = sigmoid(val);
+                val_sum += conf;
+                max_conf = std::max(max_conf, conf);
+                weighted_col += c * conf;
+                weighted_row += r * conf;
+            }
+        }
+
+        if (max_conf >= min_confidence && val_sum > 0)
+        {
+            landmarks[i][0] = weighted_col / (hm_w * val_sum);
+            landmarks[i][1] = weighted_row / (hm_h * val_sum);
+        }
+    }
+}
+
+std::vector<BlazePoseLandmark> postprocess(float *raw_landmarks, float *raw_heatmap, const ROI &roi)
+{
+    std::vector<std::vector<float>> landmarks(NUM_LANDMARKS, std::vector<float>(5, 0.0f));
+    for (int i = 0; i < NUM_LANDMARKS; i++)
+    {
+        for (int j = 0; j < 5; j++)
+        {
+            float val = raw_landmarks[i * 5 + j];
+
+            if (j == 3 || j == 4)
+                val = sigmoid(val);
+            if (j < 3)
+                val = val / IMAGE_SIZE;
+
+            landmarks[i][j] = val;
+        }
+    }
+
+    // Refine landmarks
+    if (raw_heatmap)
+    {
+        refine_landmark(landmarks, raw_heatmap, 64, 64, 39);
+    }
+
+    // Denormalize coordinates to Original Image Space
+    float cosa = std::cos(roi.rotation);
+    float sina = std::sin(roi.rotation);
+
+    std::vector<BlazePoseLandmark> pose_res;
+    BlazePoseLandmark pose;
+    pose.landmarks.resize(NUM_LANDMARKS);
+
+    for (int i = 0; i < NUM_LANDMARKS; ++i)
+    {
+        float x = landmarks[i][0] - 0.5f;
+        float y = landmarks[i][1] - 0.5f;
+        float z = landmarks[i][2];
+
+        float new_x = (cosa * x - sina * y) * roi.box_size + roi.x_center;
+        float new_y = (sina * x + cosa * y) * roi.box_size + roi.y_center;
+        float new_z = z * roi.box_size;
+
+        float score = landmarks[i][3]; // Use visibility as score
+
+        pose.landmarks[i] = {(double)new_x, (double)new_y, (double)new_z, (double)score};
+    }
+
+    pose_res.push_back(pose);
+    return pose_res;
+}
+
+std::vector<std::vector<float>> load_detections(const std::string &txt_path)
+{
+    std::vector<std::vector<float>> detections;
+    std::ifstream ifs(txt_path);
+
+    for (std::string line; std::getline(ifs, line);)
+    {
+        std::istringstream iss(line);
+        std::vector<float> det;
+        float val;
+
+        while (iss >> val)
+        {
+            det.push_back(val);
+        }
+
+        if (!det.empty())
+        {
+            detections.push_back(det);
+        }
+    }
+
+    return detections;
+}
 
 cv::Mat draw_landmarks(cv::Mat image, const std::vector<BlazePoseLandmark> &landmarks, float score_threshold)
 {

@@ -76,7 +76,7 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     # Configurable via environment variables (CLI args > env vars > defaults)
     CMAKE_BIN="${CMAKE_BIN:-cmake}"
-    YOCTO_SDK_ROOT="${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/data/yuandian/tools/poky/4.0.20}}"
+    YOCTO_SDK_ROOT="${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/mnt/fileroot/yuxuan.hu/my_poky_sdk}}"
     TOOLCHAIN_FILE="${CLI_TOOLCHAIN_FILE:-${TOOLCHAIN_FILE:-${ROOT_PWD}/../../cmake/yocto-toolchain.cmake}}"
 
     # Export variables for CMake
@@ -85,6 +85,13 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     BUILD_DIR="${ROOT_PWD}/build/yocto/${ARCH_BITS}"
 
+    # Select OpenCV based on target architecture
+    if [[ "${ARCH_BITS}" == "32" ]]; then
+        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-armhf/share/OpenCV"
+    else
+        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-aarch64/share/OpenCV"
+    fi
+
     echo "==> Building Yocto ${ARCH_BITS}-bit"
     echo "    toolchain : ${TOOLCHAIN_FILE}"
     echo "    SDK root  : ${YOCTO_SDK_ROOT}"
@@ -92,13 +99,6 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     mkdir -p "${BUILD_DIR}"
     rm -rf "${BUILD_DIR}"
-
-    # Select OpenCV based on target architecture
-    if [[ "${ARCH_BITS}" == "32" ]]; then
-        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-armhf/share/OpenCV"
-    else
-        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-aarch64/share/OpenCV"
-    fi
 
     "${CMAKE_BIN}" \
         -S "${ROOT_PWD}/src" \
@@ -120,12 +120,12 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
     fi
     STRIP_TOOL="${HOST_SYSROOT}/usr/bin/${CROSS_TRIPLE}/${CROSS_TRIPLE}-strip"
     if [[ -x "${STRIP_TOOL}" ]]; then
-        "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/yolo_world_demo"
+        "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/yoloworld_demo"
     else
         echo "warning: strip tool not found; keeping debug info." >&2
     fi
 
-    echo "Build complete. Executable in ${BUILD_DIR}/yolo_world_demo"
+    echo "Build complete. Executable in ${BUILD_DIR}/yoloworld_demo"
     exit 0
 fi
 
@@ -137,8 +137,13 @@ fi
 GCC_COMPILER=${GCC_COMPILER:-aarch64-linux-gnu}
 
 # Set compilers
-export CC=${GCC_COMPILER}-gcc
-export CXX=${GCC_COMPILER}-g++
+if [[ ${GCC_COMPILER} == *"-gcc" ]]; then
+    export CC=${GCC_COMPILER}
+    export CXX=${GCC_COMPILER%-gcc}-g++
+else
+    export CC=${GCC_COMPILER}-gcc
+    export CXX=${GCC_COMPILER}-g++
+fi
 
 # Validate compiler
 if ! command -v ${CC} &> /dev/null; then
@@ -148,7 +153,17 @@ if ! command -v ${CC} &> /dev/null; then
     exit 1
 fi
 
+ROOT_PWD=$(cd "$(dirname $0)" && pwd)
 BUILD_DIR=${ROOT_PWD}/build/linux
+
+# Set OpenCV path
+if [ "${TARGET_ARCH}" == "aarch64" ]; then
+    OPENCV_DIR_NAME="opencv-linux-aarch64"
+elif [ "${TARGET_ARCH}" == "armhf" ]; then
+    OPENCV_DIR_NAME="opencv-linux-armhf"
+else
+    echo "Warning: No OpenCV prebuilt for architecture ${TARGET_ARCH}"
+fi
 
 echo "Building for Linux..."
 echo "COMPILER: ${CC}"
@@ -161,8 +176,9 @@ cd ${BUILD_DIR}
 cmake ../../src \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR=${TARGET_ARCH} \
-    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_BUILD_TYPE=Release \
+    -DOpenCV_DIR=${ROOT_PWD}/../../../dependency/opencv/${OPENCV_DIR_NAME}/share/OpenCV
 
 make -j4
 
-echo "Build complete. Executable in ${BUILD_DIR}/yolo_world_demo"
+echo "Build complete. Executable in ${BUILD_DIR}/yoloworld_demo"

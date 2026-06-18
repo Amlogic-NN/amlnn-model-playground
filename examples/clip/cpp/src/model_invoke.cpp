@@ -14,190 +14,147 @@
  * limitations under the License.
  */
 
+#include "model_invoke.h"
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
-#include <fstream>
-#include <algorithm>
-#include <vector>
 #include <cmath>
-#include <cstdlib>
+#include <algorithm>
 
-#include "clip_process.h"
-#include "nn_sdk.h"
-
-// Global DMA config for models
-static aml_memory_config_t image_mem_config;
-static aml_memory_data_t image_mem_data;
-static void* image_context_flag = nullptr;
-
-static aml_memory_config_t text_mem_config;
-static aml_memory_data_t text_mem_data;
-static void* text_context_flag = nullptr;
+#include "nnsdk2.h"
 
 void* init_network_file(const char *model_path)
 {
-    void *qcontext = NULL;
-    aml_config config;
+    void *context = nullptr;
+    amlnn_init_config config;
+    memset(&config, 0, sizeof(amlnn_init_config));
 
-    memset(&config, 0, sizeof(aml_config));
-    config.nbgType = NN_ADLA_FILE;
-    config.path = model_path;
-    config.modelType = ADLA_LOADABLE;
-    config.typeSize = sizeof(aml_config);
+    config.backend_type = AMLNN_BACKEND_ADLA_NPU;
 
-    /* set omp, If you are considering high CPU usage during operation,
-       you can turn off this api, set_openmp_opt_flag = false */
-    aml_openmp_opt_t openmp_opt[] =
+    int ret = amlnn_init(&context, (void*)model_path, 0, &config);
+    if (ret != AMLNN_SUCCESS)
     {
-        {
-           .operator_type = AML_Unknown,
-           .enable_openmp = true,
-           .involve_all_ops = true,
-           .openmp_num = 2,
-        },
-    };
-    config.forward_ctrl.softop_info.set_openmp_opt_flag = true;
-    config.forward_ctrl.softop_info.openmp_opt_num = sizeof(openmp_opt) / sizeof(aml_openmp_opt_t);
-    config.forward_ctrl.softop_info.openmp_opt = openmp_opt;
-
-    /* set neon */
-    aml_neon_opt_t neon_opt[] =
-    {
-        {
-           .operator_type = AML_Unknown,
-           .enable_neon = true,
-           .involve_all_ops = true,
-        },
-    };
-    config.forward_ctrl.softop_info.set_neon_opt_flag = true;
-    config.forward_ctrl.softop_info.neon_opt_num = sizeof(neon_opt) / sizeof(aml_neon_opt_t);
-    config.forward_ctrl.softop_info.neon_opt = neon_opt;
-
-    qcontext = aml_module_create(&config);
-    if (NULL == qcontext)
-    {
-        printf("aml_module_create fail.\n");
-        return NULL;
+        printf("[Error] amlnn_init failed for %s. Code: %d\n", model_path, ret);
+        return nullptr;
     }
 
-    return qcontext;
+    return context;
 }
 
 std::vector<float> run_image_model(void* qcontext, const std::vector<float>& input_data)
 {
-    int ret = 0;
-    nn_input inData;
+    if (!qcontext || input_data.empty()) return {};
 
-    nn_output *outdata = NULL;
-    aml_output_config_t outconfig;
+    // 1. Query input attribute for scale and zero_point
+    amlnn_tensor_attr in_attr;
+    memset(&in_attr, 0, sizeof(in_attr));
+    in_attr.index = 0;
+    amlnn_query(qcontext, AMLNN_QUERY_INPUT_ATTR, &in_attr, sizeof(in_attr));
 
-    inData.input_index = 0;
-    inData.info.input_format = AML_INPUT_DEFAULT;
-    inData.size = input_data.size() * sizeof(float);
+    // 2. Quantize Input if needed
+    std::vector<int8_t> quant_buf_int8;
+    std::vector<uint8_t> quant_buf_uint8;
+    void* buffer_to_submit = (void*)input_data.data();
+    size_t buffer_size = input_data.size() * sizeof(float);
 
-    // Use DMA
-    if (!image_context_flag) {
-        image_mem_config.cache_type = AML_WITH_CACHE;
-        image_mem_config.memory_type = AML_VIRTUAL_ADDR;
-        image_mem_config.direction = AML_MEM_DIRECTION_READ_WRITE;
-        image_mem_config.index = 0;
-        image_mem_config.mem_size = inData.size;
-        aml_util_mallocBuffer(qcontext, &image_mem_config, &image_mem_data);
-        aml_util_swapExternalInputBuffer(qcontext, &image_mem_config, &image_mem_data);
-        image_context_flag = qcontext;
+    if (in_attr.type == AMLNN_TENSOR_INT8) {
+        quant_buf_int8.resize(in_attr.n_elems);
+        for (uint32_t i = 0; i < in_attr.n_elems && i < input_data.size(); ++i) {
+            float val = std::round(input_data[i] / in_attr.scale) + in_attr.zp;
+            quant_buf_int8[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        }
+        buffer_to_submit = quant_buf_int8.data();
+        buffer_size = quant_buf_int8.size() * sizeof(int8_t);
+    }
+    else if (in_attr.type == AMLNN_TENSOR_UINT8) {
+        quant_buf_uint8.resize(in_attr.n_elems);
+        for (uint32_t i = 0; i < in_attr.n_elems && i < input_data.size(); ++i) {
+            float val = std::round(input_data[i] / in_attr.scale) + in_attr.zp;
+            quant_buf_uint8[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+        }
+        buffer_to_submit = quant_buf_uint8.data();
+        buffer_size = quant_buf_uint8.size() * sizeof(uint8_t);
     }
 
-    inData.input_type = INPUT_DMA_DATA;
-    memcpy(image_mem_data.viraddr, input_data.data(), image_mem_config.mem_size);
-    inData.input = NULL;
+    // 3. Set Input
+    amlnn_input inData;
+    memset(&inData, 0, sizeof(amlnn_input));
+    inData.index = 0;
+    inData.buf = buffer_to_submit;
+    inData.size = buffer_size;
 
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.format = AML_OUTDATA_DMA;
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outdata = (nn_output*)aml_module_output_get(qcontext, outconfig);
+    if (amlnn_inputs_set(qcontext, 1, &inData) != AMLNN_SUCCESS) return {};
 
-    if (outdata == NULL || outdata->out[0].buf == NULL) {
-        printf("Image model inference failed.\n");
-        return {};
-    }
+    // 4. Run Inference
+    if (amlnn_run(qcontext, nullptr) != AMLNN_SUCCESS) return {};
 
-    // Copy output to vector
-    size_t output_size = outdata->out[0].size / sizeof(float);
-    float* output_ptr = reinterpret_cast<float*>(outdata->out[0].buf);
-    std::vector<float> result(output_ptr, output_ptr + output_size);
+    // 5. Get Output (Ask SDK to automatically dequantize back to float32)
+    amlnn_output outData;
+    memset(&outData, 0, sizeof(amlnn_output));
+    outData.index = 0;
+    outData.is_float = 1;
 
-    return result;
+    if (amlnn_outputs_get(qcontext, 1, &outData) != AMLNN_SUCCESS) return {};
+
+    // 6. Copy to vector
+    float* output_ptr = reinterpret_cast<float*>(outData.buf);
+    size_t output_elements = outData.size / sizeof(float);
+    return std::vector<float>(output_ptr, output_ptr + output_elements);
 }
 
 std::vector<float> run_text_model(void* qcontext, const std::vector<int64_t>& input_ids)
 {
-    int ret = 0;
-    nn_input inData;
-    nn_output *outdata = NULL;
-    aml_output_config_t outconfig;
+    if (!qcontext || input_ids.empty()) return {};
 
-    inData.input_index = 0;
-    inData.info.input_format = AML_INPUT_DEFAULT;
-    inData.size = input_ids.size() * sizeof(int64_t);
+    // Query text model input type
+    amlnn_tensor_attr in_attr;
+    memset(&in_attr, 0, sizeof(in_attr));
+    in_attr.index = 0;
+    amlnn_query(qcontext, AMLNN_QUERY_INPUT_ATTR, &in_attr, sizeof(in_attr));
 
-    // Use DMA
-    if (!text_context_flag) {
-        text_mem_config.cache_type = AML_WITH_CACHE;
-        text_mem_config.memory_type = AML_VIRTUAL_ADDR;
-        text_mem_config.direction = AML_MEM_DIRECTION_READ_WRITE;
-        text_mem_config.index = 0;
-        text_mem_config.mem_size = inData.size;
-        aml_util_mallocBuffer(qcontext, &text_mem_config, &text_mem_data);
-        aml_util_swapExternalInputBuffer(qcontext, &text_mem_config, &text_mem_data);
-        text_context_flag = qcontext;
+    std::vector<int32_t> downcast_buf;
+    void* buffer_to_submit = (void*)input_ids.data();
+    size_t buffer_size = input_ids.size() * sizeof(int64_t);
+
+    if (in_attr.type == AMLNN_TENSOR_INT32) {
+        downcast_buf.reserve(input_ids.size());
+        for (int64_t id : input_ids) {
+            downcast_buf.push_back(static_cast<int32_t>(id));
+        }
+        buffer_to_submit = downcast_buf.data();
+        buffer_size = downcast_buf.size() * sizeof(int32_t);
     }
 
-    inData.input_type = INPUT_DMA_DATA;
-    memcpy(text_mem_data.viraddr, input_ids.data(), text_mem_config.mem_size);
-    inData.input = NULL;
+    amlnn_input inData;
+    memset(&inData, 0, sizeof(amlnn_input));
+    inData.index = 0;
+    inData.buf = buffer_to_submit;
+    inData.size = buffer_size;
 
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.format = AML_OUTDATA_DMA;
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outdata = (nn_output*)aml_module_output_get(qcontext, outconfig);
+    if (amlnn_inputs_set(qcontext, 1, &inData) != AMLNN_SUCCESS) return {};
+    if (amlnn_run(qcontext, nullptr) != AMLNN_SUCCESS) return {};
 
-    if (outdata == NULL || outdata->out[0].buf == NULL) {
-        printf("Text model inference failed.\n");
-        return {};
-    }
+    amlnn_output outData;
+    memset(&outData, 0, sizeof(amlnn_output));
+    outData.index = 0;
+    outData.is_float = 1; // Extract float32 embeddings
 
-    // Copy output to vector
-    size_t output_size = outdata->out[0].size / sizeof(float);
-    float* output_ptr = reinterpret_cast<float*>(outdata->out[0].buf);
-    std::vector<float> result(output_ptr, output_ptr + output_size);
+    if (amlnn_outputs_get(qcontext, 1, &outData) != AMLNN_SUCCESS) return {};
 
-    return result;
+    float* output_ptr = reinterpret_cast<float*>(outData.buf);
+    size_t output_elements = outData.size / sizeof(float);
+    return std::vector<float>(output_ptr, output_ptr + output_elements);
 }
 
 int destroy_network(void *qcontext)
 {
-    int ret = 0;
+    if (qcontext == nullptr) return -1;
 
-    if (image_context_flag == qcontext) {
-        printf("Free image model memory.\n");
-        aml_util_freeBuffer(qcontext, &image_mem_config, &image_mem_data);
-        image_context_flag = nullptr;
-    } else if (text_context_flag == qcontext) {
-        printf("Free text model memory.\n");
-        aml_util_freeBuffer(qcontext, &text_mem_config, &text_mem_data);
-        text_context_flag = nullptr;
-    } else {
-        printf("Free network failed: context not found.\n");
-        return -1;
-    }
-
-    ret = aml_module_destroy(qcontext);
-    if (ret)
+    int ret = amlnn_destroy(qcontext);
+    if (ret != AMLNN_SUCCESS)
     {
-        printf("Free network failed: destroy failed.\n");
+        printf("[Error] amlnn_destroy failed. Code: %d\n", ret);
         return -1;
     }
-
-    return ret;
+    return 0;
 }

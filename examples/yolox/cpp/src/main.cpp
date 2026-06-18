@@ -18,136 +18,121 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <cmath>
+#include <tuple>
+#include <iomanip>
 #include <opencv2/opencv.hpp>
+#include <filesystem>
 #include "postprocess.h"
+#include "nnsdk2.h"
 #include "model_loader.h"
 
-static float sigmoid(float x) {
-    return 1.0f / (1.0f + std::exp(-x));
-}
-
-const std::string DEFAULT_OUTPUT_PATH = "./result.jpg";
 const int MODEL_INPUT_WIDTH = 640;
 const int MODEL_INPUT_HEIGHT = 640;
-const float SCORE_THRESHOLD = 0.25f;
-const float NMS_THRESHOLD = 0.45f;
-const float CONF_THRESHOLD = 0.45f;
+const float SCORE_THRESHOLD = 0.3f;
+const float NMS_THRESHOLD = 0.2f;
+namespace fs = std::filesystem;
 
-const std::vector<std::string> CLASS_NAMES = {
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog",
-    "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella",
-    "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball", "kite",
-    "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
-    "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich",
-    "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote",
-    "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book",
-    "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
-};
-
-int main(int argc, char** argv) {
-    if (argc < 3) {
-        printf("Usage: %s <model_path> <image_path> [output_path]\n", argv[0]);
-        return -1;
+int main(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir>\n";
+        return 0;
     }
 
     std::string model_path = argv[1];
-    std::string image_path = argv[2];
-    std::string output_path = (argc > 3) ? argv[3] : DEFAULT_OUTPUT_PATH;
 
-    std::cout << "YOLOX C++ Demo" << std::endl;
-    std::cout << "Model: " << model_path << std::endl;
-    std::cout << "Image: " << image_path << std::endl;
-    std::cout << "Output: " << output_path << std::endl;
+    std::cout << "YOLOX Demo" << std::endl;
 
-    // 1. Load Image
-    cv::Mat origin_img = cv::imread(image_path);
-    if (origin_img.empty()) {
-        std::cerr << "Failed to load image from " << image_path << std::endl;
+    std::string output_directory = "yolox_result/";
+    fs::create_directory(output_directory);
+
+    // 1. Initialize Network
+    void *context = nullptr;
+    int ret = init_network(model_path, context);
+
+    if (ret != AMLNN_SUCCESS)
+    {
+        std::cerr << "Failed to initialize network. Error: " << ret << std::endl;
         return -1;
     }
 
-    // 2. Initialize Network
-    void* context = init_network(model_path.c_str());
-    if (!context) {
-        std::cerr << "Failed to initialize network." << std::endl;
-        return -1;
+    // Query IO numbers to ensure we have exactly 1 output
+    amlnn_input_output_num io_num;
+    amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (io_num.n_output != 1)
+    {
+        std::cerr << "Warning: Expected 1 outputs, but model has "
+                  << io_num.n_output << " outputs." << std::endl;
     }
 
-    // 3. Preprocess
-    cv::Mat img;
-    float scale;
-    std::tuple<int, int> pad;
-    std::tie(img, scale, pad) = preproc(origin_img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-    int pad_left = std::get<0>(pad);
-    int pad_top = std::get<1>(pad);
+    // Query Input Attribute for Scale and Zero Point
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
-    // 4. Run Network
-    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple =
-        std::make_tuple(img, scale, pad);
+    // Query Output Attributes for shapes
+    amlnn_tensor_attr box_tensor = query_output_attr(context, 0);
+    std::vector<int> shape_box = get_tensor_shape(box_tensor);
 
-    auto start_time = std::chrono::high_resolution_clock::now();
+    std::vector<amlnn_output> outData(1);
 
-    void* output_ptr = run_network(context, {input_tuple});
-    if (!output_ptr) {
-        std::cerr << "Failed to run network." << std::endl;
-        uninit_network(context);
-        return -1;
-    }
-    nn_output* outdata = (nn_output*)output_ptr;
+    for (auto &it : fs::directory_iterator(argv[2]))
+    {
+        if (!it.is_regular_file())
+            continue;
 
-    // 5. Postprocess
-    int num_classes = CLASS_NAMES.size();
-    std::vector<Detection> detections;
+        // 2. Load Image
+        cv::Mat img = cv::imread(it.path().string());
+        if (img.empty())
+            continue;
 
-    if (outdata->num == 1) {
-        // Single output YOLOX model [1, 8400, 85]
-        float* output = (float*)outdata->out[0].buf;
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
+        std::cout << "============================================================" << std::endl;
 
-        int num_boxes = 8400;  // Default for YOLOX
-        if (outdata->out[0].param && outdata->out[0].param->num_of_dims >= 2) {
-            if (outdata->out[0].param->num_of_dims == 3) {
-                num_boxes = outdata->out[0].param->sizes[1];
-            } else if (outdata->out[0].param->num_of_dims == 2) {
-                num_boxes = outdata->out[0].param->sizes[0];
-            }
+        // 3. Preprocess
+        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
+        cv::Mat quantized_img = quantize_input(preprocessed, input_attr.scale, input_attr.zp);
+
+        // 4. Set input, run inference, and Get Outputs
+        size_t input_size = input_attr.n_elems * sizeof(int8_t);
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+        if (!run_network(context, quantized_img.data, input_size, outData))
+        {
+            std::cerr << "Failed to run network" << std::endl;
+            return -1;
         }
 
-        demo_postprocess(output, num_boxes, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH), false);
+        if (outData.empty())
+        {
+            return -1;
+        }
 
-        // boxes/scores
-        std::vector<cv::Rect2f> boxes;
-        std::vector<std::vector<float>> scores;
-        extract_boxes_and_scores(
-            output, num_boxes, num_classes,
-            scale, pad_left, pad_top,
-            origin_img.cols, origin_img.rows,
-            boxes, scores
-        );
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
+        std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
 
-        // multiclass_nms
-        detections = multiclass_nms(boxes, scores, num_classes, NMS_THRESHOLD, 0.1f);
-    } else {
-        std::cerr << "Error: Unsupported output count: " << outdata->num << std::endl;
-        uninit_network(context);
-        return -1;
+        // 5. Postprocess
+        std::vector<Detection> detections = postprocess(
+            (float *)outData[0].buf, shape_box,
+            std::make_tuple(preprocessed, scale, pad),
+            SCORE_THRESHOLD,
+            NMS_THRESHOLD);
+
+        std::cout << "Detections: " << detections.size() << std::endl;
+
+        // 6. Draw and Save
+        cv::Mat result_img = draw_detections(img, detections);
+        std::string out_path = output_directory + it.path().filename().string();
+        cv::imwrite(out_path, result_img);
+        std::cout << "Result saved to: " << out_path << std::endl;
     }
 
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
-    std::cout << "Inference + Postprocess time: " << inference_time.count() << " ms" << std::endl;
-    std::cout << "Detections found: " << detections.size() << std::endl;
-
-    // 6. Visualize and Save
-    cv::Mat result_img = vis(origin_img, detections, CONF_THRESHOLD, CLASS_NAMES);
-    cv::imwrite(output_path, result_img);
-    std::cout << "Result saved to " << output_path << std::endl;
+    std::cout << "============================================================" << std::endl
+              << std::endl;
 
     // 7. Cleanup
     uninit_network(context);
 
     return 0;
 }
-

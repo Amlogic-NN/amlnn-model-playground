@@ -41,6 +41,19 @@ inline float sigmoid(float x)
     return 1.0f / (1.0f + std::exp(-x));
 }
 
+std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
+{
+    std::vector<int> shape;
+    for (int i = 0; i < attr.n_dims; ++i)
+    {
+        if (attr.dims[i] > 1)
+        {
+            shape.push_back(attr.dims[i]);
+        }
+    }
+    return shape;
+}
+
 void decode_boxes(const float *ori_boxes, std::vector<std::vector<float>> &boxes)
 {
     const float x_scale = 224.0f;
@@ -195,7 +208,7 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     return std::make_tuple(img_float, scale, std::make_tuple(pad_orig_h, pad_orig_w));
 }
 
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int8_t zero_point)
+cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point)
 {
     if (float_img.empty() || float_img.type() != CV_32FC3)
     {
@@ -210,7 +223,8 @@ cv::Mat quantize_input(const cv::Mat &float_img, float scale, int8_t zero_point)
     int total_elements = float_img.total() * float_img.channels();
     for (int i = 0; i < total_elements; ++i)
     {
-        dst_ptr[i] = static_cast<int8_t>(std::round(src_ptr[i] / scale + zero_point));
+        float val = std::round(src_ptr[i] / scale) + zero_point;
+        dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
     }
 
     return quantized_img;

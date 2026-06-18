@@ -14,37 +14,37 @@
  * limitations under the License.
  */
 
-#ifndef _AMLNN_BLAZEPOSE_LANDMARK_POSTPROCESS_H_
-#define _AMLNN_BLAZEPOSE_LANDMARK_POSTPROCESS_H_
-
-#include <opencv2/opencv.hpp>
+#pragma once
 #include <vector>
-#include <tuple>
 #include <string>
+#include <tuple>
+#include <opencv2/opencv.hpp>
+#include "nnsdk2.h"
 
-#include "model_loader.h"
+const int NUM_LANDMARKS = 39;
+const int LANDMARK_FEATURE_DIM = 5;
+const int IMAGE_SIZE = 256;
 
-#define NUM_LANDMARKS 33
-#define LANDMARK_OUT_DIM 4
-#define LANDMARK_FEATURE_DIM 5
-#define IMAGE_SIZE 256
-// BlazePoseLandmark result structure
-
-struct BlazePoseLandmark
-{
-    std::vector<std::vector<double>> landmarks; // [N][x,y,z,v]
+// Struct for ROI
+struct ROI {
+    float x_center;
+    float y_center;
+    float box_size;
+    float rotation;
 };
 
-// Preprocess image with letterbox resizing
-std::tuple<cv::Mat, cv::Mat> preprocess(cv::Mat img, std::vector<std::vector<float>> &detections, std::tuple<int, int> new_shape);
+// Struct for Landmarks
+struct BlazePoseLandmark {
+    std::vector<std::vector<double>> landmarks;
+};
 
-// Quantize float32 image to int8 for model input
-cv::Mat quantize_input(const cv::Mat &float_img, float scale = 0.000030518509447574615f, int16_t zero_point = 0);
+// Function Declarations
+std::vector<std::vector<float>> load_detections(const std::string& txt_path);
 
-// Postprocess blazepose_landmark outputs with DFL decoding
-std::vector<BlazePoseLandmark> postprocess(nn_output *outdata, const cv::Mat &affine);
+std::tuple<cv::Mat, ROI> preprocess(cv::Mat img, std::vector<std::vector<float>> &detections, std::tuple<int, int> new_shape);
 
-// Draw detections on image
-cv::Mat draw_landmarks(cv::Mat image, const std::vector<BlazePoseLandmark> &landmarks, float score_threshold = 0.5);
+cv::Mat quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr& attr);
 
-#endif // _AMLNN_BLAZEPOSE_LANDMARK_POSTPROCESS_H_
+std::vector<BlazePoseLandmark> postprocess(float *raw_landmarks, float *raw_heatmap, const ROI &roi);
+
+cv::Mat draw_landmarks(cv::Mat image, const std::vector<BlazePoseLandmark> &landmarks, float score_threshold);

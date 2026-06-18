@@ -16,152 +16,140 @@
 
 #include <iostream>
 #include <vector>
+#include <chrono>
 #include <filesystem>
 #include <opencv2/opencv.hpp>
-#include "nn_sdk.h"
+#include "nnsdk2.h"
 #include "postprocess.h"
+#include "model_loader.h"
 
 namespace fs = std::filesystem;
 
-static void hwc_to_chw(const cv::Mat& src, float* dst) {
-    int h = src.rows, w = src.cols;
-    for (int k = 0; k < 3; ++k) {
-        for (int i = 0; i < h; ++i) {
-            for (int j = 0; j < w; ++j) {
-                dst[k * h * w + i * w + j] = src.at<cv::Vec3f>(i, j)[k];
-            }
-        }
-    }
-}
+const int MODEL_INPUT_WIDTH = 640;
+const int MODEL_INPUT_HEIGHT = 640;
+const float SCORE_THRESHOLD = 0.5f;
+const float NMS_THRESHOLD = 0.4f;
 
-int main(int argc, char** argv) {
-    if (argc < 3) {
+int main(int argc, char **argv)
+{
+    if (argc < 3)
+    {
         std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir>\n";
         return 0;
     }
 
-    aml_config cfg{};
-    cfg.typeSize = sizeof(cfg);
-    cfg.modelType = ADLA_LOADABLE;
-    cfg.nbgType = NN_ADLA_FILE;
-    cfg.path = argv[1];
-    void* ctx = aml_module_create(&cfg);
-    if (!ctx) {
-        std::cerr << "Failed to create aml_module\n";
+    std::string model_path = argv[1];
+    std::string out_dir = "retinaface_result";
+
+    std::cout << "RetinaFace Demo" << std::endl;
+    fs::create_directory(out_dir);
+
+    // 1. Initialize Network
+    void *context = nullptr;
+    int ret = init_network(model_path, context);
+    if (ret != AMLNN_SUCCESS)
+    {
+        std::cerr << "Failed to initialize network." << std::endl;
         return -1;
     }
 
-    auto priors = generate_priors();
-    size_t num_priors = priors.size();
-    std::vector<float> chw_buffer(kInputW * kInputH * 3);
+    // Query IO numbers
+    amlnn_input_output_num io_num;
+    amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (io_num.n_output != 3)
+    {
+        std::cerr << "Warning: Expected 3 outputs, but model has " << io_num.n_output << std::endl;
+    }
 
-    std::string model_stem = fs::path(argv[1]).stem().string();
-    const std::string out_dir = model_stem + "_result";
-    fs::create_directory(out_dir);
+    // Query Input Attributes
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
+    size_t input_size = input_attr.n_elems * sizeof(int8_t);
 
-    std::vector<fs::path> image_paths;
-    for (auto& it : fs::directory_iterator(argv[2])) {
-        std::string ext = it.path().extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        if (ext == ".jpg" || ext == ".png" || ext == ".jpeg" || ext == ".bmp") {
-            image_paths.push_back(it.path());
+    std::vector<amlnn_output> outData(io_num.n_output);
+    int expected_priors = get_num_priors(MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT);
+
+    for (auto &it : fs::directory_iterator(argv[2]))
+    {
+        if (!it.is_regular_file())
+            continue;
+
+        // 2. Load Image
+        cv::Mat img = cv::imread(it.path().string());
+        if (img.empty())
+            continue;
+
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
+        std::cout << "============================================================" << std::endl;
+
+        // 3. Preprocess
+        auto input_tuple = preprocess(img, MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT);
+        cv::Mat float_img = std::get<0>(input_tuple);
+        cv::Mat quantized_img = quantize_input(float_img, input_attr.scale, input_attr.zp, input_attr.type);
+
+        // 4. Run Inference
+        auto start_time = std::chrono::high_resolution_clock::now();
+
+        if (!run_network(context, quantized_img.data, input_size, outData))
+        {
+            std::cerr << "Failed to run network" << std::endl;
+            continue;
         }
-    }
-    std::sort(image_paths.begin(), image_paths.end());
 
-    int total = image_paths.size();
-    if (total == 0) {
-        std::cout << "No images found in " << argv[2] << "\n";
-        aml_module_destroy(ctx);
-        return 0;
-    }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::cout << "Inference time: " << std::chrono::duration<double, std::milli>(end_time - start_time).count() << " ms" << std::endl;
 
-    for (int i = 0; i < total; ++i) {
-        const auto& path = image_paths[i];
-        const std::string filename = path.filename().string();
-
-        std::cout << "============================================================\n";
-        std::cout << "Processing image " << (i + 1) << "/" << total << ": " << filename << "\n";
-        std::cout << "============================================================\n";
-
-        cv::Mat img = cv::imread(path.string());
-        if (img.empty()) continue;
-
-        float scale = std::min((float)kInputW / img.cols, (float)kInputH / img.rows);
-        int nw = img.cols * scale, nh = img.rows * scale;
-        int px = (kInputW - nw) / 2, py = (kInputH - nh) / 2;
-        cv::Mat res, canvas = cv::Mat::zeros(kInputH, kInputW, CV_32FC3);
-        cv::resize(img, res, {nw, nh});
-        res.convertTo(res, CV_32FC3);
-        res.copyTo(canvas(cv::Rect(px, py, nw, nh)));
-        hwc_to_chw(canvas, chw_buffer.data());
-
-        nn_input in{};
-        in.typeSize = sizeof(in);
-        in.input_type = BINARY_RAW_DATA;
-        in.input = (unsigned char*)chw_buffer.data();
-        in.size = chw_buffer.size() * 4;
-        in.info.valid = 1;
-        in.info.input_format = AML_INPUT_MODEL_NCHW;
-        in.info.input_data_type = AML_INPUT_FP32;
-        aml_module_input_set(ctx, &in);
-
-        aml_output_config_t outcfg{};
-        outcfg.typeSize = sizeof(outcfg);
-        outcfg.format = AML_OUTDATA_FLOAT32;
-        nn_output* out = (nn_output*)aml_module_output_get(ctx, outcfg);
-        if (!out) continue;
-
+        // 5. Locate Outputs & Determine Shape (NCHW vs NHWC handling)
         float *loc = nullptr, *conf = nullptr, *landm = nullptr;
-        for (int j = 0; j < out->num; j++) {
-            if (out->out[j].size == num_priors * 4 * 4) loc = (float*)out->out[j].buf;
-            else if (out->out[j].size == num_priors * 2 * 4) conf = (float*)out->out[j].buf;
-            else if (out->out[j].size == num_priors * 10 * 4) landm = (float*)out->out[j].buf;
-        }
-        if (!loc || !conf || !landm) continue;
+        bool loc_planar = false, conf_planar = false, landm_planar = false;
 
-        bool is_planar = (conf[0] > 2.0 || conf[1] > 2.0);
-        std::vector<std::array<float, 4>> boxes;
-        std::vector<std::array<float, 10>> lms;
-        std::vector<float> scores_vec;
+        for (int j = 0; j < io_num.n_output; j++)
+        {
+            amlnn_tensor_attr attr = query_output_attr(context, j);
+            int total_elems = outData[j].size / sizeof(float);
+            int last_dim = attr.dims[attr.n_dims - 1];
 
-        for (size_t j = 0; j < num_priors; j++) {
-            float sc = is_planar ? conf[num_priors + j] : conf[j * 2 + 1];
-            if (sc > 0.5f) {
-                boxes.push_back(decode_box(loc, j, num_priors, is_planar, priors[j]));
-                lms.push_back(decode_landm(landm, j, num_priors, is_planar, priors[j]));
-                scores_vec.push_back(sc);
+            if (total_elems == expected_priors * 4)
+            {
+                loc = (float *)outData[j].buf;
+                loc_planar = (last_dim != 4);
+            }
+            else if (total_elems == expected_priors * 2)
+            {
+                conf = (float *)outData[j].buf;
+                conf_planar = (last_dim != 2);
+            }
+            else if (total_elems == expected_priors * 10)
+            {
+                landm = (float *)outData[j].buf;
+                landm_planar = (last_dim != 10);
             }
         }
 
-        auto keep = nms(boxes, scores_vec, 0.4f);
-        for (int k : keep) {
-            auto& b = boxes[k];
-            int x1 = (b[0] * kInputW - px) / scale, y1 = (b[1] * kInputH - py) / scale;
-            int x2 = (b[2] * kInputW - px) / scale, y2 = (b[3] * kInputH - py) / scale;
-
-            cv::rectangle(img, {x1, y1}, {x2, y2}, {0, 255, 0}, 2);
-
-            char score_text[16];
-            std::snprintf(score_text, sizeof(score_text), "%.2f", scores_vec[k]);
-            cv::putText(img, score_text, {x1, std::max(y1 - 5, 5)},
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, {0, 255, 0}, 1, cv::LINE_AA);
-
-            auto& lm = lms[k];
-            for (int j = 0; j < 5; j++) {
-                int lx = (lm[2 * j] * kInputW - px) / scale;
-                int ly = (lm[2 * j + 1] * kInputH - py) / scale;
-                cv::circle(img, {lx, ly}, 2, {0, 0, 255}, -1);
-            }
+        if (!loc || !conf || !landm)
+        {
+            std::cerr << "Output parsing failed! Sizes did not match expected shapes." << std::endl;
+            continue;
         }
 
-        std::string save_path = out_dir + "/" + filename;
-        cv::imwrite(save_path, img);
+        // 6. Postprocess wrapper
+        std::vector<FaceDetection> detections = postprocess(
+            loc, loc_planar, conf, conf_planar, landm, landm_planar,
+            input_tuple, MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT, SCORE_THRESHOLD, NMS_THRESHOLD);
 
-        std::cout << "    Detected " << keep.size() << " faces\n";
-        std::cout << "    Result saved to: " << save_path << "\n\n";
+        std::cout << "    Detected " << detections.size() << " faces\n";
+
+        // 7. Draw and Save
+        cv::Mat result_img = draw_detections(img, detections);
+
+        std::string save_path = out_dir + "/" + it.path().filename().string();
+        cv::imwrite(save_path, result_img);
+        std::cout << "    Result saved to: " << save_path << "\n";
     }
 
-    aml_module_destroy(ctx);
+    std::cout << "============================================================" << std::endl;
+
+    // 8. Cleanup
+    uninit_network(context);
     return 0;
 }

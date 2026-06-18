@@ -15,138 +15,125 @@
  */
 
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <tuple>
+#include <iomanip>
 #include <algorithm>
+#include <cmath>
 #include <opencv2/opencv.hpp>
-#include <opencv2/opencv.hpp>
-#include "nn_sdk.h"
+#include "postprocess.h"
+#include "nnsdk2.h"
 #include "model_loader.h"
+#include <filesystem>
 
 const int MODEL_INPUT_WIDTH = 224;
 const int MODEL_INPUT_HEIGHT = 224;
 const int TOP_K = 5;
+namespace fs = std::filesystem;
 
-typedef struct {
-    int index;
-    float score;
-} ClassScore;
-
-bool compare_scores(const ClassScore& a, const ClassScore& b) {
-    return a.score > b.score;
-}
-
-std::vector<std::string> load_labels(const std::string& path) {
-    std::vector<std::string> labels;
-    std::ifstream file(path);
-    std::string line;
-    if (file.is_open()) {
-        while (std::getline(file, line)) {
-            // Trim whitespace
-            line.erase(line.find_last_not_of(" \n\r\t")+1);
-            labels.push_back(line);
-        }
-        file.close();
-    } else {
-        std::cerr << "Warning: Could not open labels file: " << path << std::endl;
+int main(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> [labels.txt (optional)]\n";
+        return 0;
     }
-    return labels;
-}
 
-
-
-int main(int argc, char** argv) {
     std::string model_path = argv[1];
-    std::string image_path = argv[2];
-    std::string labels_path = argv[3];
+
+    std::string labels_path = "../input/labels.txt";
+
+    if (argc >= 4)
+    {
+        labels_path = argv[3];
+    }
 
     std::cout << "MobileNetV2 Demo" << std::endl;
-    std::cout << "Model: " << model_path << std::endl;
-    std::cout << "Image: " << image_path << std::endl;
-    std::cout << "Labels: " << labels_path << std::endl;
 
-    // 1. Initialize Network
-    void* context = init_network(model_path.c_str());
-    if (!context) {
-        std::cerr << "Failed to initialize network." << std::endl;
+    if (!fs::exists(labels_path))
+    {
+        std::cerr << "Error: Labels file not found at path: " << labels_path << std::endl;
         return -1;
     }
 
-    // 2. Load and Preprocess Image
-    cv::Mat img = cv::imread(image_path);
-    if (img.empty()) {
-        std::cerr << "Failed to load image from " << image_path << std::endl;
-        uninit_network(context);
-        return -1;
-    }
-
-    cv::Mat img_resized;
-    cv::resize(img, img_resized, cv::Size(MODEL_INPUT_WIDTH, MODEL_INPUT_HEIGHT));
-
-    cv::Mat img_rgb;
-    cv::cvtColor(img_resized, img_rgb, cv::COLOR_BGR2RGB);
-
-    nn_input inData;
-    memset(&inData, 0, sizeof(nn_input));
-    inData.input_type = BINARY_RAW_DATA;
-    inData.input = img_rgb.data;
-    inData.input_index = 0;
-    inData.size = MODEL_INPUT_WIDTH * MODEL_INPUT_HEIGHT * 3 * sizeof(unsigned char);
-
-    if (aml_module_input_set(context, &inData) != 0) {
-         std::cerr << "Failed to set input." << std::endl;
-         uninit_network(context);
-         return -1;
-    }
-
-    // 3. Run Inference
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    aml_output_config_t outconfig;
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outconfig.format = AML_OUTDATA_FLOAT32;
-
-    nn_output* outdata = (nn_output*)aml_module_output_get(context, outconfig);
-    if (!outdata) {
-         std::cerr << "Failed to run network (get output)." << std::endl;
-         uninit_network(context);
-         return -1;
-    }
-
-    auto end_time = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
-    std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
-
-    // 4. Postprocess
-    if (outdata->num <= 0) {
-        std::cerr << "No output from network." << std::endl;
-        uninit_network(context);
-        return -1;
-    }
-
-    float* output_buffer = (float*)outdata->out[0].buf;
-    int num_classes = outdata->out[0].size / sizeof(float);
-
-    std::vector<ClassScore> scores;
-    for (int i = 0; i < num_classes; ++i) {
-        scores.push_back({i, output_buffer[i]});
-    }
-
-    std::sort(scores.begin(), scores.end(), compare_scores);
+    fs::create_directory("MobileNetV2_result");
 
     std::vector<std::string> labels = load_labels(labels_path);
+    // 1. Initialize Network
+    void *context = nullptr;
+    int ret = init_network(model_path, context);
 
-    std::cout << "\nTop-" << TOP_K << " Classification Results:" << std::endl;
-    for (int i = 0; i < std::min(TOP_K, num_classes); ++i) {
-        int idx = scores[i].index;
-        float score = scores[i].score;
-        std::string label = (idx < labels.size()) ? labels[idx] : "Class " + std::to_string(idx);
-        printf("  %d. %-20s (score: %.6f)\n", i + 1, label.c_str(), score);
+    if (ret != AMLNN_SUCCESS)
+    {
+        std::cerr << "Failed to initialize network. Error: " << ret << std::endl;
+        return -1;
     }
 
-    // 5. Cleanup
+    // Query IO numbers to ensure we have exactly 1 output
+    amlnn_input_output_num io_num;
+    amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (io_num.n_output != 1)
+    {
+        std::cerr << "Warning: Expected 1 outputs (boxes, scores), but model has "
+                  << io_num.n_output << " outputs." << std::endl;
+    }
+
+    // Query Input Attribute for Scale and Zero Point
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
+
+    std::vector<amlnn_output> outData(1);
+
+    for (auto &it : fs::directory_iterator(argv[2]))
+    {
+        if (!it.is_regular_file())
+            continue;
+
+        // 2. Load Image
+        cv::Mat img = cv::imread(it.path().string());
+        if (img.empty())
+            continue;
+
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
+        std::cout << "============================================================" << std::endl;
+
+        // 3. Preprocess
+        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
+        cv::Mat quantized_img = quantize_input(preprocessed, input_attr);
+
+        // 4. Set input, run inference, and Get Outputs
+        size_t input_size = input_attr.n_elems * sizeof(int8_t);
+
+        auto start_time = std::chrono::high_resolution_clock::now();
+        if (!run_network(context, quantized_img.data, input_size, outData))
+        {
+            std::cerr << "Failed to run network" << std::endl;
+            return -1;
+        }
+
+        if (outData.empty())
+        {
+            return -1;
+        }
+
+        auto end_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
+        std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
+
+        float *out_buffer = (float *)outData[0].buf;
+
+        // 5. Postprocess: Get Top K
+        int size = outData[0].size / sizeof(float);
+        std::cout << "============================================================" << std::endl;
+        postprocess_topk(out_buffer, size, labels, TOP_K);
+    }
+
+    std::cout << "============================================================" << std::endl
+              << std::endl;
+
+    // 6. Cleanup
     uninit_network(context);
 
     return 0;

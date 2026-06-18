@@ -101,12 +101,10 @@ export ANDROID_NDK_PATH=/path/to/android-ndk-r25c
 To build **all examples at once**, use the top-level batch script:
 
 ```bash
-./examples/build-android-all.sh          # auto-detects amlnn-toolkit
+cd examples
+./build-android-all.sh          # auto-detects amlnn-toolkit
 # or explicitly:
 AMLNN_HOME=/path/to/amlnn-toolkit ./build-android-all.sh
-
-#clean build files
-./examples/build-android-all.sh
 ```
 
 The script automatically cleans the previous build, resolves the AMLNN SDK via the priority rules above, and prints a build summary at the end.
@@ -124,35 +122,34 @@ export YOCTO_SDK_ROOT=/path/to/poky/sdk
 
 The toolchain file is shared across all demos at `examples/cmake/yocto-toolchain.cmake`.
 
+**Build a single demo:**
 
+```bash
+cd examples/yolox/cpp
+
+# 64-bit (default)
+./build-linux.sh -m yocto -s /path/to/poky/sdk
+
+# 32-bit
+./build-linux.sh -m yocto -b 32 -s /path/to/poky/32bit-sdk
+```
 
 **Build all demos at once:**
 
 ```bash
+cd examples
 
 # 64-bit
-./examples/build-linux-all.sh -m yocto -s /path/to/poky/sdk
+./build-linux-all.sh -m yocto -s /path/to/poky/sdk
 
 # 32-bit
-./examples/build-linux-all.sh -m yocto -b 32 -s /path/to/poky/32bit-sdk
+./build-linux-all.sh -m yocto -b 32 -s /path/to/poky/32bit-sdk
 
 # Clean yocto build artifacts
-./examples/clean-linux-all.sh -m yocto
+./clean-linux-all.sh -m yocto
 ```
 
 > **Note:** The `LLMs` demo is automatically excluded from the batch build scripts.
-
-
-**Build a single demo:**
-
-```bash
-
-# 64-bit (default)
-./examples/yolox/cpp/build-linux.sh -m yocto -s /path/to/poky/sdk
-
-# 32-bit
-./examples/yolox/cpp/build-linux.sh -m yocto -b 32 -s /path/to/poky/32bit-sdk
-```
 
 # **Release Notes**
 

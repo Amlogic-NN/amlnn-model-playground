@@ -10,7 +10,7 @@ link_directories(${AMLNN_LIBRARY_DIR})
 
 include_directories(${CMAKE_SOURCE_DIR}/../../../../common)
 
-# Set dependency path
+# Set 3rdparty path
 set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/../../../../dependency")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -25,7 +25,8 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_executable(yoloe_demo
     main.cpp
-    ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
+    postprocess.cpp
+   ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 
 target_link_libraries(yoloe_demo

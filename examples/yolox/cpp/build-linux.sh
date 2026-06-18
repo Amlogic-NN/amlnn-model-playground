@@ -77,7 +77,7 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     # Configurable via environment variables (CLI args > env vars > defaults)
     CMAKE_BIN="${CMAKE_BIN:-cmake}"
-    YOCTO_SDK_ROOT="${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/data/yuandian/tools/poky/4.0.20}}"
+    YOCTO_SDK_ROOT="${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/mnt/fileroot/yuxuan.hu/my_poky_sdk}}"
     TOOLCHAIN_FILE="${CLI_TOOLCHAIN_FILE:-${TOOLCHAIN_FILE:-${ROOT_PWD}/../../cmake/yocto-toolchain.cmake}}"
 
     # Export variables for CMake (important for try_compile and toolchain fallbacks)

@@ -26,6 +26,7 @@
 
 #include "clip_process.h"
 #include "clip_tokenizer.h"
+#include "model_invoke.h"
 
 #define BILLION 1000000000
 
@@ -59,7 +60,6 @@ std::vector<std::string> parse_texts(const std::string& input)
     std::string item;
 
     while (std::getline(ss, item, ',')) {
-        // Trim whitespace
         size_t start = item.find_first_not_of(" \t");
         size_t end = item.find_last_not_of(" \t");
         if (start != std::string::npos && end != std::string::npos) {
@@ -71,17 +71,17 @@ std::vector<std::string> parse_texts(const std::string& input)
 
 void print_usage(const char* prog_name)
 {
-    printf("Usage: %s <image_model> <text_model> <tokenizer_dir> [--profiling]\n", prog_name);
+    printf("Usage: %s <vision_model> <text_model> <tokenizer_dir> <image_path> [--profiling]\n", prog_name);
     printf("\n");
     printf("Arguments:\n");
-    printf("  image_model:    Path to image model (.adla)\n");
+    printf("  vision_model:   Path to vision model (.adla)\n");
     printf("  text_model:     Path to text model (.adla)\n");
     printf("  tokenizer_dir:  Path to directory containing vocab.json and merges.txt\n");
+    printf("  image_path:     Path to the image to process\n");
     printf("  --profiling:    Enable performance profiling output (optional)\n");
     printf("\n");
     printf("Interactive mode:\n");
-    printf("  - Enter image path to process\n");
-    printf("  - Enter comma-separated texts to compare (or 'skip' for defaults)\n");
+    printf("  - Enter comma-separated texts to compare against the image (or 'skip' for defaults)\n");
     printf("  - Enter 'exit' to quit\n");
 }
 
@@ -91,7 +91,7 @@ int main(int argc, char ** argv)
     int ret = 0;
     bool profiling = false;
 
-    if (argc < 4) {
+    if (argc < 5) {
         print_usage(argv[0]);
         return -1;
     }
@@ -99,9 +99,9 @@ int main(int argc, char ** argv)
     const char* image_model_path = argv[1];
     const char* text_model_path = argv[2];
     const char* tokenizer_dir = argv[3];
+    const std::string image_path = argv[4];
 
-    // Check for --profiling flag
-    for (int i = 4; i < argc; ++i) {
+    for (int i = 5; i < argc; ++i) {
         if (std::string(argv[i]) == "--profiling") {
             profiling = true;
         }
@@ -140,59 +140,69 @@ int main(int argc, char ** argv)
         uint64_t init_time = (timer.init_end - timer.init_start) / 1000000;
         printf("[Profiling] Model initialization: %lums\n", init_time);
     }
+    printf("[Info] Models initialized successfully.\n");
 
-    printf("[Info] Models initialized successfully.\n\n");
 
-    // Interactive loop
+    // ==================== Process Image (Done ONCE) ====================
+    {
+        std::ifstream img_file(image_path);
+        if (!img_file.good()) {
+            printf("[Error] Image not found: %s\n", image_path.c_str());
+            destroy_network(image_context);
+            destroy_network(text_context);
+            return -1;
+        }
+    }
+
+    printf("\n[Info] Processing image: %s\n", image_path.c_str());
+
+    timer.preprocess_start = get_time_count();
+    std::vector<float> image_input = preprocess_image(image_path);
+    if (image_input.empty()) {
+        printf("[Error] Failed to preprocess image.\n");
+        destroy_network(image_context);
+        destroy_network(text_context);
+        return -1;
+    }
+    timer.preprocess_end = get_time_count();
+
+    // Run image model
+    timer.image_infer_start = get_time_count();
+    std::vector<float> image_embedding = run_image_model(image_context, image_input);
+    if (image_embedding.empty()) {
+        printf("[Error] Image model inference failed.\n");
+        destroy_network(image_context);
+        destroy_network(text_context);
+        return -1;
+    }
+    timer.image_infer_end = get_time_count();
+
+    // L2 normalize image embedding
+    image_embedding = l2_normalize(image_embedding);
+    printf("[Info] Image embedding size: %zu\n", image_embedding.size());
+    printf("[Info] Image processed successfully. Entering interactive mode.\n");
+
+
+    // ==================== Interactive Text Loop ====================
     while (true) {
-        std::string image_path;
-
-        printf("============================================================\n");
-        printf("[Info] Image Path (or 'exit' to quit):\n");
-        std::getline(std::cin, image_path);
-
-        // Trim whitespace
-        size_t start = image_path.find_first_not_of(" \t\r\n");
-        size_t end = image_path.find_last_not_of(" \t\r\n");
-        if (start != std::string::npos && end != std::string::npos) {
-            image_path = image_path.substr(start, end - start + 1);
-        } else {
-            image_path.clear();
-        }
-
-        if (image_path == "exit") {
-            printf("[Info] Exiting...\n");
-            break;
-        }
-
-        if (image_path.empty()) {
-            printf("[Warning] Please enter an image path.\n");
-            continue;
-        }
-
-        // Check if file exists
-        {
-            std::ifstream img_file(image_path);
-            if (!img_file.good()) {
-                printf("[Error] Image not found: %s\n", image_path.c_str());
-                continue;
-            }
-        }
-
-        // Get texts to compare
         std::vector<std::string> texts;
 
-        printf("[Info] Enter text descriptions (comma-separated, or 'skip' for defaults):\n");
+        printf("\n============================================================\n");
+        printf("[Info] Enter text descriptions (comma-separated, 'skip' for defaults, 'exit' to quit):\n> ");
         std::string text_input;
-        std::getline(std::cin, text_input);
+        if (!std::getline(std::cin, text_input)) break;
 
-        // Trim
-        start = text_input.find_first_not_of(" \t\r\n");
-        end = text_input.find_last_not_of(" \t\r\n");
+        size_t start = text_input.find_first_not_of(" \t\r\n");
+        size_t end = text_input.find_last_not_of(" \t\r\n");
         if (start != std::string::npos && end != std::string::npos) {
             text_input = text_input.substr(start, end - start + 1);
         } else {
             text_input.clear();
+        }
+
+        if (text_input == "exit") {
+            printf("[Info] Exiting...\n");
+            break;
         }
 
         if (text_input.empty() || text_input == "skip") {
@@ -207,30 +217,6 @@ int main(int argc, char ** argv)
             continue;
         }
 
-        // ==================== Process Image ====================
-        printf("\n[Info] Processing image: %s\n", image_path.c_str());
-
-        timer.preprocess_start = get_time_count();
-        std::vector<float> image_input = preprocess_image(image_path);
-        if (image_input.empty()) {
-            printf("[Error] Failed to preprocess image.\n");
-            continue;
-        }
-        timer.preprocess_end = get_time_count();
-
-        // Run image model
-        timer.image_infer_start = get_time_count();
-        std::vector<float> image_embedding = run_image_model(image_context, image_input);
-        if (image_embedding.empty()) {
-            printf("[Error] Image model inference failed.\n");
-            continue;
-        }
-        timer.image_infer_end = get_time_count();
-
-        // L2 normalize image embedding
-        image_embedding = l2_normalize(image_embedding);
-        printf("[Info] Image embedding size: %zu\n", image_embedding.size());
-
         // ==================== Process Texts ====================
         printf("[Info] Processing %zu text(s)...\n", texts.size());
 
@@ -241,7 +227,7 @@ int main(int argc, char ** argv)
         for (size_t i = 0; i < texts.size(); ++i) {
             // Tokenize text
             std::vector<int64_t> token_ids = tokenizer.encode(texts[i], max_seq_len);
-            // Run text model
+
             uint64_t t_start = get_time_count();
             std::vector<float> text_emb = run_text_model(text_context, token_ids);
             uint64_t t_end = get_time_count();
@@ -264,16 +250,12 @@ int main(int argc, char ** argv)
             continue;
         }
 
-        printf("[Info] Text embeddings size: %zu x %zu\n",
-               text_embeddings.size(),
-               text_embeddings.empty() ? 0 : text_embeddings[0].size());
-
         // ==================== Compute Similarity ====================
         std::vector<float> similarities(texts.size());
         std::vector<float> logits(texts.size());
 
         for (size_t i = 0; i < texts.size(); ++i) {
-            similarities[i] = compute_similarity(image_embedding, text_embeddings[i], 1.0f);  // cosine sim
+            similarities[i] = compute_similarity(image_embedding, text_embeddings[i], 1.0f);
             logits[i] = similarities[i] * logit_scale;
         }
 
@@ -306,26 +288,18 @@ int main(int argc, char ** argv)
             uint64_t image_time = (timer.image_infer_end - timer.image_infer_start) / 1000000;
             uint64_t text_total_time = (timer.text_infer_end - timer.text_infer_start) / 1000000;
             printf("\n[Profiling]\n");
-            printf("  Image preprocess:  %lums\n", preprocess_time);
-            printf("  Image inference:   %lums\n", image_time);
+            printf("  Image preprocess (Done Once):  %lums\n", preprocess_time);
+            printf("  Image inference  (Done Once):  %lums\n", image_time);
             for (size_t i = 0; i < texts.size() && i < text_infer_times.size(); ++i) {
                 printf("  Text inference[%zu]: %lums  '%s'\n", i, text_infer_times[i], texts[i].c_str());
             }
-            printf("  Text total:        %lums (%zu texts)\n", text_total_time, texts.size());
+            printf("  Text total for this prompt:  %lums (%zu texts)\n", text_total_time, texts.size());
         }
-        printf("\n");
     }
 
     // Cleanup
-    ret = destroy_network(image_context);
-    if (ret != 0) {
-        printf("[Error] Failed to destroy image model.\n");
-    }
-
-    ret = destroy_network(text_context);
-    if (ret != 0) {
-        printf("[Error] Failed to destroy text model.\n");
-    }
+    if (destroy_network(image_context) != 0) printf("[Error] Failed to destroy image model.\n");
+    if (destroy_network(text_context) != 0) printf("[Error] Failed to destroy text model.\n");
 
     printf("[Info] Done.\n");
     return 0;
