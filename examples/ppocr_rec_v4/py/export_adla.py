@@ -46,7 +46,7 @@ def find_updated_adla_files(search_dir, known_files):
 def main():
     parser = argparse.ArgumentParser(description="Export ONNX to ADLA")
     parser.add_argument("--onnx", required=True, help="Path to ONNX model")
-    parser.add_argument("--dataset-path", required=True, help="Path to quant dataset")
+    parser.add_argument("--dataset-path", help="Path to quant dataset")
     parser.add_argument("--target-platform", required=True, help="Platform ID, e.g. 001, 002, 003")
     parser.add_argument("--adla", default="../model", help="Optional output .adla path")
     args = parser.parse_args()
@@ -62,11 +62,15 @@ def main():
         normalization_mean=[MEAN.tolist()],
         normalization_std=[STD.tolist()],
         quantized_dtype="w8a16",
-        activation_dtype="i16",
+        activation_dtype="fp16",
         quantized_method ="perchannel",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
-    amlnn.compile(dataset=args.dataset_path)
+
+    # NOTE: You will have add the dataset-path argument IF YOU ARE QUANTIZING TO INT8/UINT8/INT16
+    # amlnn.compile(args.dataset_path)
+
+    amlnn.compile()
     amlnn.export_adla()
 
     if args.adla:

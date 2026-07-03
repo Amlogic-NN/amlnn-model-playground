@@ -19,17 +19,11 @@
 
 #include <vector>
 #include <stdint.h>
+#include "model_loader.h"
 
-// Initialize the model and return a context pointer
-void* init_network_file(const char *model_path);
-
-// Run the Visual encoder (handles automatic quantization to int8/uint8)
-std::vector<float> run_image_model(void* qcontext, const std::vector<float>& input_data);
+// Run the Visual encoder (handles automatic quantization)
+std::vector<float> run_image_model(void *qcontext, const std::vector<float> &input_data);
 
 // Run the Text encoder (handles int64 to int32 downcasting if the NPU requires it)
-std::vector<float> run_text_model(void* qcontext, const std::vector<int64_t>& input_ids);
-
-// Clean up memory and destroy the context
-int destroy_network(void *qcontext);
-
+std::vector<float> run_text_model(void *qcontext, const std::vector<int64_t> &input_ids);
 #endif // MODEL_INVOKE_H

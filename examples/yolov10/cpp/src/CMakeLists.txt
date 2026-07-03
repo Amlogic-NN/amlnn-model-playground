@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10...3.27)
-project(yolo10_demo)
+project(yolov10_demo)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -9,9 +9,6 @@ include_directories(${AMLNN_INCLUDE_DIR})
 link_directories(${AMLNN_LIBRARY_DIR})
 
 include_directories(${CMAKE_SOURCE_DIR}/../../../../common)
-
-# Set 3rdparty path
-set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/../../../../dependency")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # Android needs log
@@ -23,13 +20,13 @@ message(STATUS "OpenCV_DIR: ${OpenCV_DIR}")
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(yolo10_demo
+add_executable(yolov10_demo
     main.cpp
     postprocess.cpp
     ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 
-target_link_libraries(yolo10_demo
+target_link_libraries(yolov10_demo
     ${OpenCV_LIBS}
     ${AMLNN_LIBRARY}
 )

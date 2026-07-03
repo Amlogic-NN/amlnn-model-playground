@@ -1,32 +1,29 @@
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.10...3.27)
+project(LLM_demo)
 
-set(CMAKE_SYSTEM_NAME Linux)
-project(AML_LLM_NNSDK)
+set(CMAKE_CXX_STANDARD 17)
 
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../../../cmake")
 
-# SDK paths
-set(LLM_NNSDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../01_src/jni")
-set(NNSDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../01_src/jni/nnsdk_v2.8.1_2025_0317/lib/linux/lib64_yocto")
+# Find LLMSDK
+find_package(AMLLLM REQUIRED)
+include_directories(${AMLNN_LLM_INCLUDE_DIR})
+link_directories(${AMLNN_LLM_LIBRARY_DIR})
 
-# Include header paths
-include_directories(
-    ${LLM_NNSDK_PATH}
+include_directories(${CMAKE_SOURCE_DIR}/../../../dependency/json)
+
+# Set 3rdparty path
+set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/../../../../dependency")
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # Android needs log
+    link_libraries(log)
+endif()
+
+add_executable(LLM_demo
+    main.cpp
 )
 
-# Source files
-aux_source_directory(. SRC_LIST)
-
-# Build executable
-add_executable(demo_llm_yocto ${SRC_LIST})
-
-# Link libraries
-target_link_libraries(demo_llm_yocto
-    ${LLM_NNSDK_PATH}/build/libllm_nnsdk.so
-    ${NNSDK_PATH}/libnnsdk.so
-    pthread
-    m
-    dl
+target_link_libraries(LLM_demo
+    ${AMLNN_LLM_LIBRARY}
 )

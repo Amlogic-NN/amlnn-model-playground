@@ -120,14 +120,14 @@ int main(int argc, char **argv)
         // 2. DET PIPELINE (Input: Uint8)
         // ============================================
         auto [float_image, scale] = preprocess_det(img, DET_MODEL_WIDTH, DET_MODEL_HEIGHT);
-        std::vector<int8_t> quantized_data = quantize_input_det(float_image, det_in_attr);
+        std::vector<uint8_t> prepared_data = prepare_input_tensor(float_image, det_in_attr);
 
         auto start_time = std::chrono::high_resolution_clock::now();
 
         // Must strictly be 640 * 640 * 3 = 1,228,800
-        size_t det_input_size = quantized_data.size() * sizeof(int8_t);
+        size_t det_input_size = prepared_data.size();
 
-        if (!run_network(det_context, quantized_data.data(), det_input_size, det_outData))
+        if (!run_network(det_context, prepared_data.data(), det_input_size, det_outData))
         {
             fprintf(stderr, "DET Inference failed\n");
             uninit_network(det_context);
@@ -181,13 +181,13 @@ int main(int argc, char **argv)
 
             // Preprocess crop for REC (Creates Float32 normalized buffer)
             cv::Mat rec_float_img = preprocess_rec(rec_crop, REC_MODEL_WIDTH, REC_MODEL_HEIGHT);
-            std::vector<int16_t> quantized_data = quantize_input_rec(rec_float_img, rec_in_attr);
+            std::vector<uint8_t> prepared_data = prepare_input_tensor(rec_float_img, rec_in_attr);
 
             // Run REC Inference
             auto start_rec_time = std::chrono::high_resolution_clock::now();
 
-            size_t rec_input_size = quantized_data.size() * sizeof(int16_t);
-            if (!run_network(rec_context, quantized_data.data(), rec_input_size, rec_outData))
+            size_t rec_input_size = prepared_data.size();
+            if (!run_network(rec_context, prepared_data.data(), rec_input_size, rec_outData))
             {
                 fprintf(stderr, "REC Inference failed on box %zu\n", i);
                 continue;

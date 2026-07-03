@@ -18,8 +18,11 @@
 #include <unistd.h>
 #include <string>
 #include <iostream>
+#include <termios.h>
 
-#include "llmsdk.h"
+extern "C" {
+    #include "llmsdk.h"
+}
 
 typedef struct
 {
@@ -41,7 +44,6 @@ void callback(AML_LLMResult *result, void *userdata, AML_LLMRunStatus run_status
             my_data->printed = true;
         }
         printf("%s", result->text);
-        // printf("%d,", result->token_id);
         fflush(stdout);
     }
     else if (run_status == AML_LLM_RUN_FINISH)
@@ -54,12 +56,45 @@ void callback(AML_LLMResult *result, void *userdata, AML_LLMRunStatus run_status
     }
 }
 
+std::string get_line_with_backspace() {
+    std::string input;
+    struct termios old_t, new_t;
+
+    tcgetattr(STDIN_FILENO, &old_t);
+    new_t = old_t;
+
+    new_t.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &new_t);
+
+    char c;
+    while (read(STDIN_FILENO, &c, 1) == 1) {
+        if (c == '\n' || c == '\r') {
+            printf("\n");
+            break;
+        }
+        else if (c == 8 || c == 127) {
+            if (!input.empty()) {
+                input.pop_back();
+                printf("\b \b");
+                fflush(stdout);
+            }
+        }
+        else if (c >= 32 && c <= 126) {
+            input.push_back(c);
+            printf("%c", c);
+            fflush(stdout);
+        }
+    }
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_t);
+    return input;
+}
 
 int main(int argc, char **argv)
 {
-    if (argc < 3)
+    if (argc < 2)
     {
-        printf("Usage: %s <model_path> <tokenizer_path>\n", argv[0]);
+        printf("Usage: %s <model_path>\n", argv[0]);
         return -1;
     }
 
@@ -67,7 +102,6 @@ int main(int argc, char **argv)
     AML_LLMInitConfig init_config;
     memset(&init_config, 0, sizeof(AML_LLMInitConfig));
     init_config.model_path = (const char *)argv[1];
-    init_config.tokenizer_path = (const char *)argv[2];
     init_config.sampling_mode = AML_LLM_ARG_Max;
     init_config.top_k = 3;
     init_config.top_p = 0.9f;
@@ -118,9 +152,10 @@ int main(int argc, char **argv)
 
     while (true)
     {
-        std::string input_str;
         printf("\nLLM@Amlogic>>> ");
-        std::getline(std::cin, input_str);
+        fflush(stdout);
+        std::string input_str = get_line_with_backspace();
+
         if (input_str == "new_talk")
         {
             aml_llm_reset(context);

@@ -17,7 +17,6 @@
 #ifndef _AMLNN_MODEL_LOADER_H_
 #define _AMLNN_MODEL_LOADER_H_
 
-#include <opencv2/opencv.hpp>
 #include <vector>
 #include <tuple>
 #include <unordered_set>

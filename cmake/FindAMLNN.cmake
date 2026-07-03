@@ -3,7 +3,7 @@
 # Locates the AMLNN nnsdk headers and libraries.
 #
 # Inputs (set before calling find_package):
-#   AMLNN_HOME  – root of the amlnn-toolkit (contains nn_runtime/)
+#   AMLNN_HOME  – root of the amlnn-toolkit/amlnn_runtime (contains nn_runtime/)
 #                 May also be supplied as the environment variable AMLNN_HOME.
 #
 # Outputs:
@@ -27,8 +27,8 @@ if(NOT AMLNN_HOME)
         "AMLNN_HOME not found.\n"
         "Please set the AMLNN_HOME environment variable (or CMake variable) "
         "to the root of the amlnn-toolkit directory, e.g.:\n"
-        "  export AMLNN_HOME=/path/to/amlnn-toolkit\n"
-        "  cmake ... -DAMLNN_HOME=/path/to/amlnn-toolkit")
+        "  export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime\n"
+        "  cmake ... -DAMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime")
 endif()
 
 get_filename_component(AMLNN_HOME "${AMLNN_HOME}" ABSOLUTE)
@@ -38,19 +38,28 @@ set(AMLNN_INCLUDE_DIR "${AMLNN_NNSDK_ROOT}/include")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     if(ANDROID_ABI STREQUAL "arm64-v8a")
-        set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/android/arm64-v8a")
+        set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/android/lib64")
     else()
-        set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/android/armeabi-v7a")
+        set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/android/lib32")
     endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    if(DEFINED ARCH_BITS AND ARCH_BITS STREQUAL "32")
-        set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/yocto/arm-poky-linux")
+    if(DEFINED YOCTO_SDK_ROOT)
+        if(DEFINED ARCH_BITS AND ARCH_BITS STREQUAL "32")
+            set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/yocto/lib32")
+        else()
+            set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/yocto/lib64")
+        endif()
     else()
-        set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/yocto/aarch64-poky-linux")
+        if(DEFINED ARCH_BITS AND ARCH_BITS STREQUAL "32")
+            set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/buildroot/lib32")
+        else()
+            set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/buildroot/lib64")
+        endif()
     endif()
-else()
-    set(AMLNN_LIBRARY_DIR "${AMLNN_NNSDK_ROOT}/linux/yocto/aarch64-poky-linux")
+
 endif()
+
+set(AMLNN_LIBRARY "nnsdk")
 
 set(AMLNN_LIBRARY "nnsdk")
 

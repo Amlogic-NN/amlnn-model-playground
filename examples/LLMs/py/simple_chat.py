@@ -18,10 +18,11 @@
 
 import argparse
 import sys
+import readline
 from datetime import datetime
 
-from amlllm.api import AMLLLM
-from amlllm.backend import RunStatus
+from amlllmlite.api import AMLLLMLite
+from amlllmlite.api.inference import RunStatus
 
 
 def stream_callback(token, userdata=None):
@@ -39,7 +40,7 @@ def stream_callback(token, userdata=None):
         print(text, end="", flush=True)
 
 
-def apply_model_template(amlllm: AMLLLM, model_type: str):
+def apply_model_template(amlllm: AMLLLMLite, model_type: str):
     """Set chat templates using the same defaults as the C demo."""
     system_prompt = ""
     prompt_prefix = ""
@@ -88,7 +89,6 @@ def apply_model_template(amlllm: AMLLLM, model_type: str):
 def parse_args():
     parser = argparse.ArgumentParser(description="Amlogic LLM interactive demo (Python)")
     parser.add_argument("--model", required=True, help="Path to LLM model file")
-    parser.add_argument("--tokenizer", required=True, help="Path to tokenizer resources")
     parser.add_argument("--sampling-mode", default="argmax", choices=["argmax", "top_p", "top_k"], help="Sampling mode")
     parser.add_argument("--top-k", type=int, default=3, dest="top_k", help="Top-K parameter")
     parser.add_argument("--top-p", type=float, default=0.9, dest="top_p", help="Top-P parameter")
@@ -102,16 +102,14 @@ def parse_args():
 
 def main():
     args = parse_args()
-    amlllm = AMLLLM()
+    amlllm = AMLLLMLite(log_level=args.log_level)
     amlllm.config(
            model_path=args.model,
-           tokenizer_path=args.tokenizer,
            sampling_mode=args.sampling_mode,
            top_k=args.top_k,
            top_p=args.top_p,
            temperature=args.temperature,
            repeat_penalty=args.repeat_penalty,
-           loglevel=args.loglevel,
            on_token=stream_callback,
     )
     amlllm.init()

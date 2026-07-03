@@ -20,25 +20,24 @@
 #include <vector>
 #include <string>
 #include <opencv2/opencv.hpp>
+#include <cstdint>
 #include "nnsdk2.h"
 
-#define REC_MODEL_INPUT_WIDTH 320
-#define REC_MODEL_INPUT_HEIGHT 48
+const int REC_MODEL_INPUT_WIDTH = 320;
+const int REC_MODEL_INPUT_HEIGHT = 48;
 
-// Normalization Constants
 const float NORM_MEAN = 127.5f;
-const float NORM_SCALE = 128.0f;
+const float NORM_SCALE = 127.5f;
 
-struct RecResult {
-    std::string text;
-    float score;
-};
-
-// Function declarations
+// --- Function Declarations ---
 std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
-std::vector<std::string> load_dict(const std::string& path);
-std::vector<int16_t> quantize_input(const cv::Mat& float_img, const amlnn_tensor_attr& attr);
-cv::Mat preprocess(const cv::Mat& image, const int dest_width, const int dest_height);
-std::string postprocess_rec(float* out_data, const std::vector<int>& out_shape, const std::vector<std::string>& char_dict);
+
+std::vector<std::string> load_dict(const std::string &path);
+
+cv::Mat preprocess(const cv::Mat &image, const int dest_width, const int dest_height);
+
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+
+std::string postprocess_rec(float *out_data, const std::vector<int> &out_shape, const std::vector<std::string> &char_dict);
 
 #endif // POSTPROCESS_H

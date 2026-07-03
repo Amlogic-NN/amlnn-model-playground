@@ -217,8 +217,8 @@ def compute_similarity(image_embedding: np.ndarray, text_embeddings: np.ndarray,
 
 def main():
     parser = argparse.ArgumentParser(description='CLIP Image-Text Matching Demo using AMLNN')
-    parser.add_argument('--vision-model-path', required=True, help='Path to vision model')
-    parser.add_argument('--text-model-path', required=True, help='Path to text model')
+    parser.add_argument('--text-model', required=True, help='Path to text model')
+    parser.add_argument('--vision-model', required=True, help='Path to vision model')
     parser.add_argument('--tokenizer-dir', required=True, help='Path to CLIPTokenizer directory')
     parser.add_argument('--image-path', default=None, help='Path to input image (optional, will prompt if not provided)')
     parser.add_argument('--texts', nargs='+', default=None, help='List of text descriptions to compare')
@@ -227,21 +227,11 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate model paths
-    # if not os.path.exists(args.vision_model_path):
-    #     print(f"[Error] Vision model not found: {args.vision_model_path}")
-    #     return -1
-
-    # if not os.path.exists(args.text_model_path):
-    #     print(f"[Error] Text model not found: {args.text_model_path}")
-    #     return -1
-
     # Load tokenizer
     print(f"[Info] Loading CLIPTokenizer from: {args.tokenizer_dir}")
     tokenizer = CLIPTokenizer.from_pretrained(args.tokenizer_dir)
 
     # Initialize vision model
-    # print(f"[Info] Initializing vision model: {args.vision_model_path}")
     vision_amlnn = AMLNN()
 
     vision_amlnn.init_runtime(mode="native", enable_perf=True)
@@ -250,9 +240,7 @@ def main():
 
     vision_tensor_info = vision_amlnn.get_tensor_info()
 
-
     # Initialize text model
-    # print(f"[Info] Initializing text model: {args.text_model_path}")
     text_amlnn = AMLNN()
 
     text_amlnn.init_runtime(mode="native", enable_perf=True)

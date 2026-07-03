@@ -30,7 +30,7 @@ namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
 {
-    if (argc < 3)
+    if (argc < 4)
     {
         printf("Usage: %s <model.adla> <image_dir> <dict_path>\n", argv[0]);
         return -1;
@@ -39,7 +39,7 @@ int main(int argc, char **argv)
     std::string model_path = argv[1];
     std::string dict_path = argv[3];
 
-    std::cout << "PPOCR Rec Demo" << std::endl;
+    std::cout << "PPOCR Rec Demo (Robust Type Handler)" << std::endl;
 
     // 1. Initialize Network
     void *context = nullptr;
@@ -51,23 +51,14 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    // Query IO numbers to ensure we have exactly 1 output
     amlnn_input_output_num io_num;
     amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-    if (io_num.n_output != 1)
-    {
-        std::cerr << "Warning: Expected 1 output, but model has "
-                  << io_num.n_output << " outputs." << std::endl;
-    }
 
-    // Query Input Attribute for Scale and Zero Point
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
-
-    // Query Output Attributes for shapes
     amlnn_tensor_attr output_attr = query_output_attr(context, 0);
     std::vector<int> out_shape = get_tensor_shape(output_attr);
 
-    printf("REC Input Scale: %.8f, ZP: %d\n", input_attr.scale, input_attr.zp);
+    printf("REC Input Type: %d, Scale: %.8f, ZP: %d\n", input_attr.type, input_attr.scale, input_attr.zp);
 
     std::vector<amlnn_output> outData(io_num.n_output);
 
@@ -97,13 +88,19 @@ int main(int argc, char **argv)
 
         // 3. Preprocess
         cv::Mat float_image = preprocess(img, REC_MODEL_INPUT_WIDTH, REC_MODEL_INPUT_HEIGHT);
-        std::vector<int16_t> quantized_data = quantize_input(float_image, input_attr);
+
+        // Dynamic input formatter
+        std::vector<uint8_t> prepared_data = prepare_input_tensor(float_image, input_attr);
+        if (prepared_data.empty())
+        {
+            std::cerr << "Failed to prepare input tensor." << std::endl;
+            continue;
+        }
 
         // 4. Inference
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        size_t input_size = quantized_data.size() * sizeof(int16_t);
-        if (!run_network(context, quantized_data.data(), input_size, outData))
+        if (!run_network(context, prepared_data.data(), prepared_data.size(), outData))
         {
             std::cerr << "Failed to run network" << std::endl;
             uninit_network(context);
@@ -120,8 +117,26 @@ int main(int argc, char **argv)
         std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
         std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
 
+        float *final_out_ptr = nullptr;
+        std::vector<float> fp32_converted_out;
+
+        if (output_attr.type == AMLNN_TENSOR_FLOAT16)
+        {
+            cv::Mat fp16_out(1, output_attr.n_elems, CV_16FC1, outData[0].buf);
+            cv::Mat fp32_out;
+            fp16_out.convertTo(fp32_out, CV_32FC1); // Hardware-accelerated OpenCV conversion
+
+            fp32_converted_out.assign((float *)fp32_out.data, (float *)fp32_out.data + output_attr.n_elems);
+            final_out_ptr = fp32_converted_out.data();
+        }
+        else
+        {
+            // Assume Float32 output
+            final_out_ptr = (float *)outData[0].buf;
+        }
+
         // 5. Postprocess
-        std::string result = postprocess_rec((float *)outData[0].buf, out_shape, char_dict);
+        std::string result = postprocess_rec(final_out_ptr, out_shape, char_dict);
 
         // 6. Print output
         printf("[RESULT] Recognized Text: %s\n", result.c_str());

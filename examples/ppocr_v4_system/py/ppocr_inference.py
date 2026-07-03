@@ -62,6 +62,9 @@ def cpp_round(x):
 
 def apply_quantization(tensor, s, zp, tensor_type):
     """ Quantize float tensor to integer based on hardware attributes """
+    if tensor_type == 0:
+        return tensor # FP16
+
     val = cpp_round(tensor / s + zp)
     if tensor_type == 2:   # INT8
         return np.clip(val, -128, 127).astype(np.int8)

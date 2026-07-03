@@ -28,11 +28,10 @@ add_executable(${PROJECT_NAME}
     model_invoke.cpp
     pre_postprocess.cpp
     clip_tokenizer.cpp
+    ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 
 target_link_libraries(${PROJECT_NAME}
     ${AMLNN_LIBRARY}
-    dl
-    m
 )
 

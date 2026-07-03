@@ -21,8 +21,10 @@ import glob
 import argparse
 import numpy as np
 from pathlib import Path
-from amlnnlite.api import AMLNNLite
+from amlnn.api import AMLNN
 
+MEAN = np.array([0, 0, 0], dtype=np.float32)
+STD  = np.array([255, 255, 255], dtype=np.float32)
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
@@ -65,15 +67,21 @@ def nms_xyxy(boxes, scores, iou_thres=0.5):
     return keep
 
 
-def preprocess(img_path, input_size=(320, 320)):
+def preprocess(img_path, input_size=(320, 320), tensor_type=0):
     img = cv2.imread(img_path)
     if img is None:
         return None, None, None
 
     orig = img.copy()
     img = cv2.resize(img, input_size)
-    img = img.astype(np.float32) / 255.0
-    img = np.expand_dims(img, axis=0)  
+
+    if tensor_type == 0:
+        img = img.astype(np.float32) / 255.0
+    elif tensor_type == 1:
+        img = (img.astype(np.float32) / 255.0).astype(np.float16)
+
+    img = np.expand_dims(img, axis=0)
+    # img = (img / 0.003776 - 128).astype(np.int8)
     return img, orig, orig.shape[:2]
 
 
@@ -86,11 +94,11 @@ def postprocess_qrcode(outputs, orig_shape, conf_thres=0.8, nms_thres=0.5, pad=4
     out = np.asarray(out)
 
     if out.ndim == 4 and out.shape[0] == 1 and out.shape[1] == 1:
-        out = out[0, 0]                 
-        pred = out.transpose(1, 0)      
+        out = out[0, 0]
+        pred = out.transpose(1, 0)
     elif out.ndim == 3 and out.shape[0] == 1:
-        out = out[0]                    
-        pred = out.transpose(1, 0)      
+        out = out[0]
+        pred = out.transpose(1, 0)
     else:
         raise ValueError(f"Unexpected output shape: {out.shape}")
 
@@ -205,26 +213,34 @@ def draw_results(img, results):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="QRCode AMLNNLite Demo")
-    parser.add_argument('--board-work-path', type=str, default='/data/local/tmp')
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser = argparse.ArgumentParser(description="QRCode AMLNN Demo")
+    parser.add_argument('--model-path', required=True, help='Path to model')
+    parser.add_argument('--dataset-path', required=True, help='Path to quant dataset')
     parser.add_argument('--image-dir', required=True, help='Directory of test images')
-    parser.add_argument('--run-cycles', type=int, default=1, help='Inference cycles')
-    parser.add_argument('--loglevel', type=str, default='WARNING',
-                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'])
     parser.add_argument('--conf-thres', type=float, default=0.8)
     parser.add_argument('--nms-thres', type=float, default=0.5)
     parser.add_argument('--pad', type=int, default=40)
+    parser.add_argument('--target-platform', required=True, help='Platform ID, e.g. 001, 002, 003')
     args = parser.parse_args()
 
-    amlnn = AMLNNLite()
-    amlnn.config(
-        board_work_path=args.board_work_path,
-        model_path=args.model_path,
-        run_cycles=args.run_cycles,
-        loglevel=args.loglevel
-    )
-    amlnn.init()
+    amlnn = AMLNN()
+
+    amlnn.load_tflite(model=args.model_path, quantized_model=True)
+    # amlnn.load_pytorch(model=args.model_path, input_shapes=[[1,3,320,320]], dtypes=["float32"])
+    # amlnn.load_onnx(model=args.model_path)
+
+    amlnn.config(normalization_mean=[MEAN.tolist()], normalization_std=[STD.tolist()], quantized_dtype='w8a8', target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}")
+
+    amlnn.compile(dataset=args.dataset_path)
+
+    amlnn.export_adla()
+
+    amlnn.init_runtime(mode="native", enable_perf=True)
+
+    tensor_info = amlnn.get_tensor_info()
+
+    print(amlnn.get_sdk_version())
+
 
     image_files = sorted(glob.glob(os.path.join(args.image_dir, "*.[jp][pn][g]")))
     if not image_files:
@@ -240,12 +256,14 @@ def main():
         print(f"Processing image {idx}/{len(image_files)}: {Path(img_path).name}")
         print("=" * 60)
 
-        inp, orig, orig_shape = preprocess(img_path)
+        tensor_attr = tensor_info["inputs"][0]
+        tensor_type = int(tensor_attr["type"])
+        inp, orig, orig_shape = preprocess(img_path, tensor_type=tensor_type)
         if inp is None:
             print(f"Failed to read: {img_path}")
             continue
 
-        outputs = amlnn.inference(inp, inputs_data_format='NHWC')
+        outputs = amlnn.inference(inp)
         dets = postprocess_qrcode(
             outputs,
             orig_shape,
@@ -269,13 +287,13 @@ def main():
         cv2.imwrite(save_path, vis)
         print(f"    Result saved to: {save_path}")
 
-    if args.loglevel == 'INFO':
-        print("\nPerformance analysis visualization starting...")
+    print(amlnn.get_perf_info())
 
-    amlnn.visualize()
+    amlnn.perf_visualize()
+
     amlnn.uninit()
 
 
 if __name__ == "__main__":
-    
     main()
+    

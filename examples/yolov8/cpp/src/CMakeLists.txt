@@ -10,9 +10,6 @@ link_directories(${AMLNN_LIBRARY_DIR})
 
 include_directories(${CMAKE_SOURCE_DIR}/../../../../common)
 
-# Set 3rdparty path
-set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/../../../../dependency")
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # Android needs log
     link_libraries(log)

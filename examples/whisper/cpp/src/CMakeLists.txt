@@ -8,21 +8,15 @@ find_package(AMLNN REQUIRED)
 include_directories(${AMLNN_INCLUDE_DIR})
 link_directories(${AMLNN_LIBRARY_DIR})
 
-# Set 3rdparty path
-set(3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/../../../../dependency")
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # Android needs log
     link_libraries(log)
 endif()
 
-# Find OpenCV
-message(STATUS "OpenCV_DIR: ${OpenCV_DIR}")
-find_package(OpenCV REQUIRED)
-include_directories(${OpenCV_INCLUDE_DIRS})
+find_package(Threads REQUIRED)
 
 add_executable(whisper_demo
-     main.cpp
+    main.cpp
     common.cpp
     whisper.cpp
     whisper_invoke.cpp
@@ -31,8 +25,8 @@ add_executable(whisper_demo
 )
 
 target_link_libraries(whisper_demo
-    ${OpenCV_LIBS}
     ${AMLNN_LIBRARY}
+    Threads::Threads
 )
 
 

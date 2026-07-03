@@ -85,13 +85,6 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     BUILD_DIR="${ROOT_PWD}/build/yocto/${ARCH_BITS}"
 
-    # Select OpenCV based on target architecture
-    if [[ "${ARCH_BITS}" == "32" ]]; then
-        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-armhf/share/OpenCV"
-    else
-        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-aarch64/share/OpenCV"
-    fi
-
     echo "==> Building Yocto ${ARCH_BITS}-bit"
     echo "    toolchain : ${TOOLCHAIN_FILE}"
     echo "    SDK root  : ${YOCTO_SDK_ROOT}"
@@ -99,6 +92,13 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     mkdir -p "${BUILD_DIR}"
     rm -rf "${BUILD_DIR}"
+
+    # Select OpenCV based on target architecture
+    if [[ "${ARCH_BITS}" == "32" ]]; then
+        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-armhf-yocto/share/OpenCV"
+    else
+        OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-aarch64-yocto/share/OpenCV"
+    fi
 
     "${CMAKE_BIN}" \
         -S "${ROOT_PWD}/src" \
@@ -133,52 +133,78 @@ fi
 # Standard Linux cross-compile build
 # ===========================================================================
 
-# Default to aarch64-linux-gnu if GCC_COMPILER is not set
-GCC_COMPILER=${GCC_COMPILER:-aarch64-linux-gnu}
-
-# Set compilers
-if [[ ${GCC_COMPILER} == *"-gcc" ]]; then
-    export CC=${GCC_COMPILER}
-    export CXX=${GCC_COMPILER%-gcc}-g++
-else
-    export CC=${GCC_COMPILER}-gcc
-    export CXX=${GCC_COMPILER}-g++
-fi
-
-# Validate compiler
-if ! command -v ${CC} &> /dev/null; then
-    echo "Error: Compiler ${CC} not found."
-    echo "Please set GCC_COMPILER environment variable to your cross-compiler path prefix."
-    echo "Example: export GCC_COMPILER=/path/to/toolchain/bin/aarch64-linux-gnu"
+if [[ "${ARCH_BITS}" != "32" && "${ARCH_BITS}" != "64" ]]; then
+    echo "Unsupported ARCH_BITS \"${ARCH_BITS}\". Must be 32 or 64." >&2
     exit 1
 fi
 
-ROOT_PWD=$(cd "$(dirname $0)" && pwd)
-BUILD_DIR=${ROOT_PWD}/build/linux
-
-# Set OpenCV path
-if [ "${TARGET_ARCH}" == "aarch64" ]; then
-    OPENCV_DIR_NAME="opencv-linux-aarch64"
-elif [ "${TARGET_ARCH}" == "armhf" ]; then
-    OPENCV_DIR_NAME="opencv-linux-armhf"
+if [[ "${ARCH_BITS}" == "32" ]]; then
+    DEFAULT_COMPILER="arm-none-linux-gnueabihf"
+    # Correct to the right arch
+    if [[ "${TARGET_ARCH}" == "aarch64" ]]; then
+        TARGET_ARCH="arm"
+    fi
 else
-    echo "Warning: No OpenCV prebuilt for architecture ${TARGET_ARCH}"
+    DEFAULT_COMPILER="aarch64-none-linux-gnu"
 fi
 
-echo "Building for Linux..."
-echo "COMPILER: ${CC}"
-echo "TARGET_ARCH: ${TARGET_ARCH}"
-echo "BUILD_DIR: ${BUILD_DIR}"
+# Allow override via GCC_COMPILER environment variable
+GCC_COMPILER=${GCC_COMPILER:-${DEFAULT_COMPILER}}
 
-mkdir -p ${BUILD_DIR}
-cd ${BUILD_DIR}
+# Set compilers and strip tool
+if [[ "${GCC_COMPILER}" == *"-gcc" ]]; then
+    export CC="${GCC_COMPILER}"
+    export CXX="${GCC_COMPILER%-gcc}-g++"
+    STRIP_TOOL="${GCC_COMPILER%-gcc}-strip"
+else
+    export CC="${GCC_COMPILER}-gcc"
+    export CXX="${GCC_COMPILER}-g++"
+    STRIP_TOOL="${GCC_COMPILER}-strip"
+fi
 
-cmake ../../src \
+# Validate compiler is in PATH
+if ! command -v "${CC}" &> /dev/null; then
+    echo "Error: Compiler '${CC}' not found."
+    echo "Please add your toolchain 'bin' directory to your PATH, or set GCC_COMPILER."
+    echo "Example: export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:\$PATH"
+    exit 1
+fi
+
+# Set up directories
+BUILD_DIR="${ROOT_PWD}/build/linux/${ARCH_BITS}"
+CMAKE_BIN="${CMAKE_BIN:-cmake}"
+
+echo "==> Building Linux ${ARCH_BITS}-bit"
+echo "    COMPILER    : ${CC}"
+echo "    TARGET_ARCH : ${TARGET_ARCH}"
+echo "    BUILD_DIR   : ${BUILD_DIR}"
+
+mkdir -p "${BUILD_DIR}"
+
+if [[ "${ARCH_BITS}" == "32" ]]; then
+    OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-armhf-buildroot/share/OpenCV"
+else
+    OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-linux-aarch64-buildroot/share/OpenCV"
+fi
+
+"${CMAKE_BIN}" \
+    -S "${ROOT_PWD}/src" \
+    -B "${BUILD_DIR}" \
     -DCMAKE_SYSTEM_NAME=Linux \
-    -DCMAKE_SYSTEM_PROCESSOR=${TARGET_ARCH} \
+    -DCMAKE_SYSTEM_PROCESSOR="${TARGET_ARCH}" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DOpenCV_DIR=${ROOT_PWD}/../../../dependency/opencv/${OPENCV_DIR_NAME}/share/OpenCV
+    -DOpenCV_DIR="${OPENCV_DIR}" \
+    -DARCH_BITS="${ARCH_BITS}" \
+    -DCMAKE_CXX_FLAGS="-Wno-psabi"
 
-make -j4
+# Build
+"${CMAKE_BIN}" --build "${BUILD_DIR}" --config Release -j4
+
+# Strip binary
+if command -v "${STRIP_TOOL}" &> /dev/null; then
+    "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/gesture_demo"
+else
+    echo "warning: strip tool '${STRIP_TOOL}' not found; keeping debug info." >&2
+fi
 
 echo "Build complete. Executable in ${BUILD_DIR}/gesture_demo"

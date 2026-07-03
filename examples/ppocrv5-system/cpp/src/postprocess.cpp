@@ -35,10 +35,10 @@ TextDetector::TextDetector(const fs::path model_path) {
 
 int TextDetector::InitNetwork() {
     std::cout << "TextDetector: Loading model from: " << model_path_ << std::endl;
-
-    void* ctx_ = init_network(model_path_.c_str());
-    if (!ctx_) {
-        std::cerr << "TextDetector: Failed to initialize text detector with model: " << model_path_ << std::endl;
+    int ret = init_network(model_path_.string(), ctx_);
+    if (ret != 0) {
+        std::cerr << "TextDetector: Failed to initialize text detector with model: " << model_path_
+                  << ", ret=" << ret << std::endl;
         throw std::runtime_error("Failed to initialize text detector");
     }
     return 0;
@@ -97,30 +97,9 @@ cv::Mat TextDetector::Preprocess(const cv::Mat &image) {
     }
     std::cout << "TextDetector: normalized range is " << minf << " ~ " << maxf << std::endl;
 
-    // quantize to int8
-    float scale = 0.018723;
-    float zero_point = -14.49078329023180;
-
-    cv::Mat quantized(normalized.rows, normalized.cols, CV_8SC3);
-    const float* src = (float*)normalized.data;
-    int8_t* dst = (int8_t*)quantized.data;
-    int total = normalized.total() * 3;
-
-    for (int i = 0; i < total; ++i) {
-        int q = static_cast<int>(std::round(src[i] / scale + zero_point));
-        q = std::max(-128, std::min(127, q));
-        dst[i] = static_cast<int8_t>(q);
-    }
-
-    int minv = 127, maxv = -128;
-    for (int i = 0; i < total; ++i) {
-        minv = std::min(minv, (int)dst[i]);
-        maxv = std::max(maxv, (int)dst[i]);
-    }
-
-    // print the quantized values and their range
-    std::cout << "TextDetector: quantized int8 range: " << minv << " ~ " << maxv << std::endl;
-    return quantized;
+    // Return normalized float32 image (NHWC CV_32FC3). Quantization/conversion
+    // will be done by the caller based on model input attr (int8/int16/fp16/fp32).
+    return normalized;
 }
 
 std::pair<std::vector<cv::Point2f>, float> TextDetector::GetMiniBoxes(const std::vector<cv::Point>& contour) {
@@ -355,44 +334,86 @@ std::vector<DetectionResult> TextDetector::Postprocess(const cv::Mat& image, con
 }
 
 std::vector<DetectionResult> TextDetector::Detect(const cv::Mat &image) {
-    cv::Mat preprocessed = Preprocess(image);
-    if (preprocessed.rows != 960 ||
-        preprocessed.cols != 960 ||
-        preprocessed.channels() != 3 ||
-        preprocessed.type() != CV_8SC3) {
-        std::cerr << "TextDetector: invalid preprocessed shape: "
-                  << preprocessed.cols << "x" << preprocessed.rows
-                  << ", channels=" << preprocessed.channels()
-                  << ", type=" << preprocessed.type()
-                  << std::endl;
+    cv::Mat float_img = Preprocess(image);
+    if (float_img.empty() || float_img.rows != 960 ||
+        float_img.cols != 960 || float_img.channels() != 3 ||
+        float_img.type() != CV_32FC3) {
+        std::cerr << "TextDetector: invalid preprocessed float shape" << std::endl;
         return {};
     }
 
-    nn_input inData;
-    memset(&inData, 0, sizeof(nn_input));
-    inData.input_type = BINARY_RAW_DATA;
-    inData.input = preprocessed.data;
-    inData.input_index = 0;
-    inData.size = preprocessed.total() * preprocessed.elemSize();
+    // Query input attr to decide how to pack data (INT8/INT16/FP16/FP32)
+    amlnn_tensor_attr in_attr = query_input_attr(ctx_, 0);
 
-    int ret = aml_module_input_set(ctx_, &inData);
-    if (ret) {
-        std::cerr << "Error: Failed to set input for text detection. Ret=" << ret << std::endl;
+    // Query outputs and pre-allocate
+    amlnn_input_output_num io_num;
+    memset(&io_num, 0, sizeof(io_num));
+    if (amlnn_query(ctx_, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num)) != AMLNN_SUCCESS) {
+        std::cerr << "Error: Failed to query IO num for text detection" << std::endl;
+        return {};
+    }
+    std::vector<amlnn_output> outputs(io_num.n_output);
+
+    // Prepare input buffer according to in_attr.type
+    void* input_ptr = nullptr;
+    size_t input_size = 0;
+    cv::Mat tmp_storage_fp16; // storage if we convert to fp16
+    cv::Mat quantized_mat;    // storage for int8/int16
+
+    if (in_attr.type == AMLNN_TENSOR_FLOAT16) {
+        // convert float32 -> fp16 (stored as CV_16SC3)
+        cv::convertFp16(float_img, tmp_storage_fp16);
+        input_ptr = tmp_storage_fp16.data;
+        input_size = tmp_storage_fp16.total() * tmp_storage_fp16.elemSize();
+    } else if (in_attr.type == AMLNN_TENSOR_FLOAT32) {
+        input_ptr = float_img.data;
+        input_size = float_img.total() * sizeof(float) * float_img.channels();
+    } else if (in_attr.type == AMLNN_TENSOR_INT8 || in_attr.type == AMLNN_TENSOR_UINT8) {
+        // quantize using scale and zp
+        int total = float_img.total() * float_img.channels();
+        int mat_type = (in_attr.type == AMLNN_TENSOR_UINT8) ? CV_8UC3 : CV_8SC3;
+        quantized_mat.create(float_img.rows, float_img.cols, mat_type);
+        const float* src = float_img.ptr<float>();
+        if (in_attr.type == AMLNN_TENSOR_UINT8) {
+            uint8_t* dst = (uint8_t*)quantized_mat.data;
+            for (int i = 0; i < total; ++i) {
+                float val = std::round(src[i] / in_attr.scale) + in_attr.zp;
+                dst[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+            }
+        } else {
+            int8_t* dst = (int8_t*)quantized_mat.data;
+            for (int i = 0; i < total; ++i) {
+                float val = std::round(src[i] / in_attr.scale) + in_attr.zp;
+                dst[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+            }
+        }
+        input_ptr = quantized_mat.data;
+        input_size = quantized_mat.total() * quantized_mat.elemSize();
+    } else if (in_attr.type == AMLNN_TENSOR_INT16 || in_attr.type == AMLNN_TENSOR_UINT16) {
+        int total = float_img.total() * float_img.channels();
+        quantized_mat.create(float_img.rows, float_img.cols, CV_16SC3);
+        const float* src = float_img.ptr<float>();
+        int16_t* dst = (int16_t*)quantized_mat.data;
+        for (int i = 0; i < total; ++i) {
+            float v = std::round(src[i] / in_attr.scale) + in_attr.zp;
+            dst[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, v)));
+        }
+        input_ptr = quantized_mat.data;
+        input_size = quantized_mat.total() * quantized_mat.elemSize();
+    } else {
+        std::cerr << "TextDetector: Unsupported input tensor type: " << in_attr.type << std::endl;
         return {};
     }
 
-    aml_output_config_t outconfig;
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outconfig.format = AML_OUTDATA_FLOAT32;
-    nn_output* nnout = (nn_output *)aml_module_output_get(ctx_, outconfig);
-    if (!nnout) {
-        std::cerr << "Error: Inference failed for text detection" << std::endl;
+    bool ok = run_network(ctx_, input_ptr, input_size, outputs);
+    if (!ok || outputs.empty()) {
+        std::cerr << "Error: Inference failed for text detection (run_network)" << std::endl;
         return {};
     }
 
-    float* out0 = reinterpret_cast<float*>(nnout->out[0].buf);
-    size_t output_size = nnout->out[0].size / sizeof(float);
+    // assume first output contains float32 map
+    float* out0 = reinterpret_cast<float*>(outputs[0].buf);
+    size_t output_size = outputs[0].size / sizeof(float);
     std::vector<float> output_vector(out0, out0 + output_size);
 
     float min_val = FLT_MAX, max_val = -FLT_MAX, mean = 0;
@@ -453,9 +474,10 @@ TextRecognizer::TextRecognizer(const fs::path model_path, const fs::path dict_pa
 int TextRecognizer::InitNetwork() {
     std::cout << "TextRecognizer: Loading model from: " << model_path_ << std::endl;
 
-    ctx_ = init_network(model_path_.c_str());
-    if (!ctx_) {
-        std::cerr << "TextRecognizer: Failed to initialize text recognizer with model: " << model_path_ << std::endl;
+    int ret = init_network(model_path_.string(), ctx_);
+    if (ret != 0 || !ctx_) {
+        std::cerr << "TextRecognizer: Failed to initialize text recognizer with model: " << model_path_
+                  << ", ret=" << ret << std::endl;
         throw std::runtime_error("Failed to initialize text recognizer");
     }
 
@@ -503,26 +525,9 @@ cv::Mat TextRecognizer::Preprocess(const cv::Mat &image) {
     cv::Mat output = cv::Mat::zeros(img_h, img_w, CV_32FC3);
     resized.copyTo(output(cv::Rect(0, 0, resized_w, img_h)));
 
-    // quantize to int8
-    float scale = 0.007843137254902;
-    float zero_point = 0.4999999999993463;
-
-    cv::Mat quantized(output.rows, output.cols, CV_8SC3);
-    const float* src = (float*)output.data;
-    int8_t* dst = (int8_t*)quantized.data;
-    int total = output.total() * 3;
-
-    for (int i = 0; i < total; ++i) {
-        int q = static_cast<int>(std::round(src[i] / scale + zero_point));
-        q = std::max(-128, std::min(127, q));
-        dst[i] = static_cast<int8_t>(q);
-    }
-
-    double min_val, max_val;
-    cv::minMaxLoc(quantized.reshape(1), &min_val, &max_val);
-    std::cout << "TextRecognizer: quantized range: min=" << min_val << " max=" << max_val << std::endl;
-
-    return quantized;
+    // Return normalized float32 image (NHWC CV_32FC3). Packing to int16/fp16
+    // will be performed by the caller using `query_input_attr`.
+    return output;
 }
 
 std::pair<std::string, float> TextRecognizer::Postprocess(const std::vector<float>& output_data) {
@@ -633,42 +638,84 @@ std::pair<std::string, float> TextRecognizer::Postprocess(const std::vector<floa
 }
 
 std::string TextRecognizer::Recognize(const cv::Mat &cropped_image) {
-    cv::Mat preprocessed = Preprocess(cropped_image);
-    if (preprocessed.rows != 48 ||
-        preprocessed.cols != 320 ||
-        preprocessed.channels() != 3 ||
-        preprocessed.type() != CV_8SC3) {
+    cv::Mat float_img = Preprocess(cropped_image);
+    if (float_img.empty() || float_img.rows != 48 ||
+        float_img.cols != 320 || float_img.channels() != 3 ||
+        float_img.type() != CV_32FC3) {
 
-        std::cerr << "Recognition: invalid preprocessed shape: "
-                << preprocessed.cols << "x" << preprocessed.rows
-                << ", channels=" << preprocessed.channels()
-                << ", type=" << preprocessed.type()
-                << std::endl;
-
+        std::cerr << "Recognition: invalid preprocessed float shape" << std::endl;
         return "";
     }
 
-    nn_input inData;
-    memset(&inData, 0, sizeof(nn_input));
-    inData.input_type = BINARY_RAW_DATA;
-    inData.input = preprocessed.data;
-    inData.input_index = 0;
-    inData.size = preprocessed.cols * preprocessed.rows * preprocessed.channels() * sizeof(uint8_t);
+    // Query input attr
+    amlnn_tensor_attr in_attr = query_input_attr(ctx_, 0);
 
-    int ret = aml_module_input_set(ctx_, &inData);
+    // Query outputs and pre-allocate
+    amlnn_input_output_num io_num;
+    memset(&io_num, 0, sizeof(io_num));
+    if (amlnn_query(ctx_, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num)) != AMLNN_SUCCESS) {
+        std::cerr << "Error: Failed to query IO num for text recognition" << std::endl;
+        return "";
+    }
+    std::vector<amlnn_output> outputs(io_num.n_output);
 
-    aml_output_config_t outconfig;
-    memset(&outconfig, 0, sizeof(aml_output_config_t));
-    outconfig.typeSize = sizeof(aml_output_config_t);
-    outconfig.format = AML_OUTDATA_FLOAT32;
-    nn_output* nnout = (nn_output *)aml_module_output_get(ctx_, outconfig);
-    if (!nnout) {
-        std::cerr << "Error: Inference failed for text recognition" << std::endl;
+    // Prepare input buffer according to in_attr.type
+    void* input_ptr = nullptr;
+    size_t input_size = 0;
+    cv::Mat tmp_fp16;
+    cv::Mat quantized_mat;
+
+    if (in_attr.type == AMLNN_TENSOR_FLOAT16) {
+        cv::convertFp16(float_img, tmp_fp16);
+        input_ptr = tmp_fp16.data;
+        input_size = tmp_fp16.total() * tmp_fp16.elemSize();
+    } else if (in_attr.type == AMLNN_TENSOR_FLOAT32) {
+        input_ptr = float_img.data;
+        input_size = float_img.total() * sizeof(float) * float_img.channels();
+    } else if (in_attr.type == AMLNN_TENSOR_INT8 || in_attr.type == AMLNN_TENSOR_UINT8) {
+        int total = float_img.total() * float_img.channels();
+        int mat_type = (in_attr.type == AMLNN_TENSOR_UINT8) ? CV_8UC3 : CV_8SC3;
+        quantized_mat.create(float_img.rows, float_img.cols, mat_type);
+        const float* src = float_img.ptr<float>();
+        if (in_attr.type == AMLNN_TENSOR_UINT8) {
+            uint8_t* dst = (uint8_t*)quantized_mat.data;
+            for (int i = 0; i < total; ++i) {
+                float val = std::round(src[i] / in_attr.scale) + in_attr.zp;
+                dst[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+            }
+        } else {
+            int8_t* dst = (int8_t*)quantized_mat.data;
+            for (int i = 0; i < total; ++i) {
+                float val = std::round(src[i] / in_attr.scale) + in_attr.zp;
+                dst[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+            }
+        }
+        input_ptr = quantized_mat.data;
+        input_size = quantized_mat.total() * quantized_mat.elemSize();
+    } else if (in_attr.type == AMLNN_TENSOR_INT16 || in_attr.type == AMLNN_TENSOR_UINT16) {
+        int total = float_img.total() * float_img.channels();
+        quantized_mat.create(float_img.rows, float_img.cols, CV_16SC3);
+        const float* src = float_img.ptr<float>();
+        int16_t* dst = (int16_t*)quantized_mat.data;
+        for (int i = 0; i < total; ++i) {
+            float v = std::round(src[i] / in_attr.scale) + in_attr.zp;
+            dst[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, v)));
+        }
+        input_ptr = quantized_mat.data;
+        input_size = quantized_mat.total() * quantized_mat.elemSize();
+    } else {
+        std::cerr << "Recognition: Unsupported input tensor type: " << in_attr.type << std::endl;
         return "";
     }
 
-    float* output_data = reinterpret_cast<float*>(nnout->out[0].buf);
-    size_t output_size = nnout->out[0].size / sizeof(float);
+    bool ok = run_network(ctx_, input_ptr, input_size, outputs);
+    if (!ok || outputs.empty()) {
+        std::cerr << "Error: Inference failed for text recognition (run_network)" << std::endl;
+        return "";
+    }
+
+    float* output_data = reinterpret_cast<float*>(outputs[0].buf);
+    size_t output_size = outputs[0].size / sizeof(float);
     std::vector<float> output_vec(output_data, output_data + output_size);
     auto result = Postprocess(output_vec);
     return result.first;
@@ -805,7 +852,7 @@ int OcrUtils::DrawOCRResults(cv::Mat& image, const std::vector<OCRResult> &resul
         cv::putText(image, res.text,
                     cv::Point(x, y),
                     cv::FONT_HERSHEY_SIMPLEX,
-                    0.6,
+                    1.0,
                     cv::Scalar(255, 0, 0),
                     2);
 

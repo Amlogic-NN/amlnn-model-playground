@@ -42,9 +42,11 @@ def find_updated_adla_files(search_dir, known_files):
     )
 
 def main():
-    parser = argparse.ArgumentParser(description="Export TFLite to ADLA")
-    parser.add_argument("--vision-tflite", required=True, help="Path to Encoder TFLite model")
-    parser.add_argument("--text-tflite", required=True, help="Path to Decoder TFLite model")
+    parser = argparse.ArgumentParser(description="Export ONNX to ADLA")
+    parser.add_argument("--text-onnx", required=True, help="Path to Text ONNX model")
+    parser.add_argument("--vision-onnx", required=True, help="Path to Vision ONNX model")
+    parser.add_argument("--text-dataset-path", help="Path to a `.txt` containing all the paths to the quantization images for the text model (Not needed only if you are using `FP16`, required otherwise.")
+    parser.add_argument("--vision-dataset-path", help="Path to a `.txt` containing all the paths to the quantization images for the vision model (Not needed only if you are using `FP16`, required otherwise.")
     parser.add_argument("--target-platform", required=True, help="Platform ID, e.g. 001, 002, 003")
     parser.add_argument("--adla", default="../model", help="Optional output .adla path")
     args = parser.parse_args()
@@ -53,13 +55,22 @@ def main():
     known_adla_files = snapshot_adla_files(search_dir) if args.adla else {}
 
     amlnn = AMLNN()
-    amlnn.load_tflite(model=args.vision_tflite, quantized_model=True)
+    amlnn.load_onnx(model=args.vision_onnx,
+        outputs=[
+        "image_embeds"  # <-- Vision embedding 1x512
+    ])
+
     amlnn.config(
         normalization_mean=[MEAN.tolist()],
         normalization_std=[STD.tolist()],
-        quantized_dtype='w8a8', 
+        quantized_dtype='w8a16',
+        activation_dtype="fp16",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}"
     )
+
+    # NOTE: You will have add the vision-dataset-path argument IF YOU ARE QUANTIZING TO INT8/UINT8/INT16
+    # amlnn.compile(args.text_dataset_path)
+
     amlnn.compile()
 
     amlnn.export_adla()
@@ -77,11 +88,20 @@ def main():
 
 
     amlnn = AMLNN()
-    amlnn.load_tflite(model=args.text_tflite, quantized_model=True)
+    amlnn.load_onnx(model=args.text_onnx,
+        outputs=[
+        "text_embeds"   # <-- Text embedding 1x512
+    ])
+
     amlnn.config(
-        quantized_dtype='w8a8', 
+        quantized_dtype='w8a16',
+        activation_dtype="fp16",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}"
     )
+
+    # NOTE: You will have add the vision-dataset-path argument IF YOU ARE QUANTIZING TO INT8/UINT8/INT16
+    # amlnn.compile(args.vision_dataset_path)
+
     amlnn.compile()
 
     amlnn.export_adla()

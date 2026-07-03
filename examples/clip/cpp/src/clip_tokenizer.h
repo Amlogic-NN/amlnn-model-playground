@@ -23,7 +23,8 @@
 #include <climits>
 #include <unordered_map>
 
-class CLIPTokenizer {
+class CLIPTokenizer
+{
 public:
     CLIPTokenizer() = default;
 
@@ -33,14 +34,14 @@ public:
      * @param merges_path  Path to merges.txt
      * @return true on success
      */
-    bool load(const std::string& vocab_path, const std::string& merges_path);
+    bool load(const std::string &vocab_path, const std::string &merges_path);
 
     /**
      * Load tokenizer from a directory containing vocab.json and merges.txt
      * @param tokenizer_dir  Path to directory
      * @return true on success
      */
-    bool load_from_dir(const std::string& tokenizer_dir);
+    bool load_from_dir(const std::string &tokenizer_dir);
 
     /**
      * Tokenize text to token IDs with padding/truncation.
@@ -50,7 +51,7 @@ public:
      * @param max_len   Maximum sequence length (default: 64)
      * @return Vector of int64_t token IDs with shape [max_len]
      */
-    std::vector<int64_t> encode(const std::string& text, int max_len = 64) const;
+    std::vector<int64_t> encode(const std::string &text, int max_len = 64) const;
 
     /**
      * Check if tokenizer is loaded
@@ -78,8 +79,8 @@ private:
     std::map<BPEPair, int> bpe_ranks_;
 
     // Special token IDs
-    int sot_token_id_ = 49406;  // <|startoftext|>
-    int eot_token_id_ = 49407;  // <|endoftext|>
+    int sot_token_id_ = 49406; // <|startoftext|>
+    int eot_token_id_ = 49407; // <|endoftext|>
 
     bool loaded_ = false;
 
@@ -87,20 +88,19 @@ private:
     void init_byte_to_unicode();
 
     // Convert UTF-8 string to vector of unicode codepoints
-    static std::vector<char32_t> utf8_to_codepoints(const std::string& str);
+    static std::vector<char32_t> utf8_to_codepoints(const std::string &str);
 
     // Convert unicode codepoints to UTF-8 string
-    static std::string codepoints_to_utf8(const std::vector<char32_t>& cps);
+    static std::string codepoints_to_utf8(const std::vector<char32_t> &cps);
 
     // Apply BPE to a single word (already converted to unicode representation)
-    std::vector<std::string> bpe(const std::string& token) const;
+    std::vector<std::string> bpe(const std::string &token) const;
 
     // Clean and split text using CLIP's regex pattern
-    std::vector<std::string> pre_tokenize(const std::string& text) const;
+    std::vector<std::string> pre_tokenize(const std::string &text) const;
 
     // Convert raw bytes to unicode string using byte_to_unicode mapping
-    std::string bytes_to_unicode_str(const std::string& raw) const;
+    std::string bytes_to_unicode_str(const std::string &raw) const;
 };
 
 #endif // CLIP_TOKENIZER_H
-

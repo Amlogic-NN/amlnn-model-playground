@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10...3.27)
-project(ppocr_rec_demo)
+project(ppocrv4_rec_demo)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -24,13 +24,13 @@ message(STATUS "OpenCV_DIR: ${OpenCV_DIR}")
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(ppocr_rec_demo
+add_executable(ppocrv4_rec_demo
     main.cpp
     postprocess.cpp
    ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 
-target_link_libraries(ppocr_rec_demo
+target_link_libraries(ppocrv4_rec_demo
     ${OpenCV_LIBS}
     ${AMLNN_LIBRARY}
 )

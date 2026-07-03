@@ -26,24 +26,27 @@
 
 // bilinear interpolation scaling
 static std::vector<float> resize_bilinear(
-    const unsigned char* src, int src_w, int src_h, int channels,
+    const unsigned char *src, int src_w, int src_h, int channels,
     int dst_w, int dst_h)
 {
     std::vector<float> dst(dst_w * dst_h * channels);
 
-    for (int y = 0; y < dst_h; y++) {
+    for (int y = 0; y < dst_h; y++)
+    {
         float fy = (y + 0.5f) * src_h / dst_h - 0.5f;
         int y0 = std::max(0, (int)std::floor(fy));
         int y1 = std::min(src_h - 1, y0 + 1);
         float wy = fy - y0;
 
-        for (int x = 0; x < dst_w; x++) {
+        for (int x = 0; x < dst_w; x++)
+        {
             float fx = (x + 0.5f) * src_w / dst_w - 0.5f;
             int x0 = std::max(0, (int)std::floor(fx));
             int x1 = std::min(src_w - 1, x0 + 1);
             float wx = fx - x0;
 
-            for (int c = 0; c < channels; c++) {
+            for (int c = 0; c < channels; c++)
+            {
                 float v00 = src[(y0 * src_w + x0) * channels + c];
                 float v01 = src[(y0 * src_w + x1) * channels + c];
                 float v10 = src[(y1 * src_w + x0) * channels + c];
@@ -58,10 +61,12 @@ static std::vector<float> resize_bilinear(
     return dst;
 }
 
-std::vector<float> preprocess_image(const std::string& image_path) {
+std::vector<float> preprocess_image(const std::string &image_path)
+{
     int width, height, channels;
-    unsigned char* img = stbi_load(image_path.c_str(), &width, &height, &channels, 3);
-    if (!img) {
+    unsigned char *img = stbi_load(image_path.c_str(), &width, &height, &channels, 3);
+    if (!img)
+    {
         std::cerr << "Failed to load image: " << image_path << std::endl;
         return {};
     }
@@ -78,12 +83,15 @@ std::vector<float> preprocess_image(const std::string& image_path) {
 
     // center crop
     int left = (new_w - target_size) / 2;
-    int top  = (new_h - target_size) / 2;
+    int top = (new_h - target_size) / 2;
 
     std::vector<float> cropped(target_size * target_size * 3);
-    for (int h = 0; h < target_size; h++) {
-        for (int w = 0; w < target_size; w++) {
-            for (int c = 0; c < 3; c++) {
+    for (int h = 0; h < target_size; h++)
+    {
+        for (int w = 0; w < target_size; w++)
+        {
+            for (int c = 0; c < 3; c++)
+            {
                 cropped[(h * target_size + w) * 3 + c] =
                     resized[((h + top) * new_w + (w + left)) * 3 + c];
             }
@@ -94,10 +102,12 @@ std::vector<float> preprocess_image(const std::string& image_path) {
 
     // normalization (CLIP)
     float mean[3] = {0.48145466f, 0.4578275f, 0.40821073f};
-    float std[3]  = {0.26862954f, 0.26130258f, 0.27577711f};
+    float std[3] = {0.26862954f, 0.26130258f, 0.27577711f};
 
-    for (int i = 0; i < target_size * target_size; i++) {
-        for (int c = 0; c < 3; c++) {
+    for (int i = 0; i < target_size * target_size; i++)
+    {
+        for (int c = 0; c < 3; c++)
+        {
             cropped[i * 3 + c] = (cropped[i * 3 + c] - mean[c]) / std[c];
         }
     }
@@ -108,22 +118,24 @@ std::vector<float> preprocess_image(const std::string& image_path) {
 
 // ==================== Post Processing ====================
 
-std::vector<float> l2_normalize(const std::vector<float>& vec)
+std::vector<float> l2_normalize(const std::vector<float> &vec)
 {
     float norm = 0.0f;
-    for (float v : vec) {
+    for (float v : vec)
+    {
         norm += v * v;
     }
     norm = std::sqrt(norm) + 1e-12f;
 
     std::vector<float> result(vec.size());
-    for (size_t i = 0; i < vec.size(); ++i) {
+    for (size_t i = 0; i < vec.size(); ++i)
+    {
         result[i] = vec[i] / norm;
     }
     return result;
 }
 
-std::vector<float> softmax(const std::vector<float>& logits)
+std::vector<float> softmax(const std::vector<float> &logits)
 {
     std::vector<float> result(logits.size());
 
@@ -131,27 +143,31 @@ std::vector<float> softmax(const std::vector<float>& logits)
     float max_logit = *std::max_element(logits.begin(), logits.end());
 
     float sum_exp = 0.0f;
-    for (size_t i = 0; i < logits.size(); ++i) {
+    for (size_t i = 0; i < logits.size(); ++i)
+    {
         result[i] = std::exp(logits[i] - max_logit);
         sum_exp += result[i];
     }
 
-    for (float& val : result) {
+    for (float &val : result)
+    {
         val /= sum_exp;
     }
 
     return result;
 }
 
-float compute_similarity(const std::vector<float>& a, const std::vector<float>& b, float scale)
+float compute_similarity(const std::vector<float> &a, const std::vector<float> &b, float scale)
 {
-    if (a.size() != b.size()) {
+    if (a.size() != b.size())
+    {
         printf("Feature dimension mismatch: %zu vs %zu\n", a.size(), b.size());
         return 0.0f;
     }
 
     float dot = 0.0f;
-    for (size_t i = 0; i < a.size(); ++i) {
+    for (size_t i = 0; i < a.size(); ++i)
+    {
         dot += a[i] * b[i];
     }
     return dot * scale;

@@ -4,8 +4,9 @@ This example runs PPOCR_Rec with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python or C++ demo with the ADLA model.
-4. Check detection images/results.
+3. Run the Python demo with ADLA model.
+4. Run the C++ (Linux/Android) demo with the ADLA model.
+5. Check detection images/results.
 
 ## Directory Layout
 
@@ -45,7 +46,6 @@ Run the ADLA export script from `examples/ppocr_rec_v4/py`:
 cd examples/ppocr_rec_v4/py
 python export_adla.py \
   --onnx ../model/ppocr_rec_static.onnx \
-  --dataset-path ../../../resource/font_calibration_dataset.txt \
   --target-platform 005 \
   --adla ../model
 ```
@@ -53,7 +53,7 @@ python export_adla.py \
 | Parameter         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | `--onnx`        | `.onnx` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images  |
+| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
 | `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
 | `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
 
@@ -95,35 +95,49 @@ The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, 
 ### Build For Android
 
 **Prerequisites:**
-- Android NDK (r25e recommended)
-- `ANDROID_NDK_PATH` environment variable set
+- **Android NDK** (r27d recommended) installed on your system.
+- **AMLNN Toolkit** downloaded and extracted.
+- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
 
-**Build:**
+**1. Setup Environment:**
+Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
 ```bash
-# Build for arm64-v8a
-cd examples/ppocr_rec_v4/cpp
-AMLNN_HOME=/path/to/amlnn-toolkit ./build-android.sh -a arm64-v8a
+export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
+export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-The executable will be generated at `build/android/ppocr_rec_demo` (Note: executable name may vary, verify in build folder).
+**2. Build:**
+Navigate to the C++ directory and run the build script.
+
+```bash
+cd examples/ppocr_rec_v4/cpp
+
+# Build for 64-bit (arm64-v8a) - Default
+./build-android.sh
+
+# Build for 32-bit (armeabi-v7a)
+./build-android.sh -a armeabi-v7a
+```
+
+The executable will be generated at `build/android/ppocrv4_rec_demo` (Note: executable name may vary, verify in build folder).
 
 #### 2. Run
 
 ```bash
 # Push executable to device
 adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/ppocr_rec_demo /data/local/tmp/
+adb push build/android/ppocrv4_rec_demo /data/local/tmp/
 adb push ../model/ppocr_rec_static_w8a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
 # Run on device
 adb shell
 cd /data/local/tmp
-chmod +x ppocr_rec_demo
+chmod +x ppocrv4_rec_demo
 export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
-# Usage: ./ppocr_rec_demo <model_path> <image_dir> <dict_path>
-./ppocr_rec_demo ppocr_rec_static_w8a16.adla input/ ../input/ppocr_keys_v1.txt
+# Usage: ./ppocrv4_rec_demo <model_path> <image_dir> <dict_path>
+./ppocrv4_rec_demo ppocr_rec_static_w8a16.adla input/ ../input/ppocr_keys_v1.txt
 ```
 
 **Note:** Replace `ppocr_rec_static_w8a16.adla` with your actual model file path.
@@ -133,38 +147,55 @@ export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
 The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
 
-#### Mode 1: Standard Linux Cross-Compile (Default)
+### Mode 1: Standard Linux Cross-Compile (Default)
 
 **Prerequisites:**
-- GCC Cross-Compiler toolchain installed
-- `GCC_COMPILER` environment variable set to your cross-compiler prefix (defaults to `aarch64-linux-gnu`)
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+- The toolchain's `bin/` folder must be added to your system's `PATH`.
+- Prebuilt OpenCV located in the `dependency/opencv/` folder.
+- `AMLNN_HOME` environment variable set
 
-**Build:**
+**1. Setup Environment:**
+Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
 ```bash
-# Set cross-compiler prefix (example)
-export GCC_COMPILER=/path/to/toolchain/bin/aarch64-linux-gnu
-export AMLNN_HOME=/path/to/amlnn-toolkit
+# Export the AMLNN path
+export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 
-# Build for aarch64 (Default)
-cd examples/ppocr_rec_v4/cpp
-./build-linux.sh
+# For 64-bit (aarch64) builds, add the 64-bit toolchain to PATH:
+export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PATH
 
-# Or build for 32-bit armhf
-./build-linux.sh -a armhf
+# OR for 32-bit (arm) builds, add the 32-bit toolchain to PATH:
+export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-The executable will be generated at `build/linux/ppocr_rec_demo` (Note: executable name may vary, verify in build folder).
+**2. Build:**
+```bash
+cd examples/ppocr_rec_v4/cpp
+# Build for 64-bit (Default)
+./build-linux.sh
 
-#### Mode 2: Yocto Build
+# Build for 32-bit
+./build-linux.sh -b 32
+```
+
+*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+```bash
+GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
+```
+
+The executable will be generated at `build/linux/64/ppocrv4_rec_demo` (or `build/linux/32/ppocrv4_rec_demo`).
+
+### Mode 2: Yocto Build
 
 **Prerequisites:**
 - Yocto SDK installed
 - CMake Toolchain file available
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+- Prebuilt OpenCV located in the `dependency/opencv/` folder.
 
 **Build:**
 ```bash
+# Export the AMLNN path
+export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 cd examples/ppocr_rec_v4/cpp
 
 # Build for Yocto 64-bit (Default)
@@ -175,7 +206,7 @@ cd examples/ppocr_rec_v4/cpp
 ```
 *(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/ppocr_rec_demo` (or `build/yocto/32/ppocr_rec_demo`).
+The executable will be generated at `build/yocto/64/ppocrv4_rec_demo` (or `build/yocto/32/ppocrv4_rec_demo`).
 
 ---
 
@@ -184,17 +215,17 @@ The executable will be generated at `build/yocto/64/ppocr_rec_demo` (or `build/y
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
 adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/ppocr_rec_demo /data/local/tmp/
+adb push build/linux/ppocrv4_rec_demo /data/local/tmp/
 adb push ../model/ppocr_rec_static_w8a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
 # Run on device
 adb shell
 cd /data/local/tmp
-chmod +x ppocr_rec_demo
+chmod +x ppocrv4_rec_demo
 
-# Usage: ./ppocr_rec_demo <model_path> <image_dir> <dict_path>
-./ppocr_rec_demo ppocr_rec_static_w8a16.adla input/ ../input/ppocr_keys_v1.txt
+# Usage: ./ppocrv4_rec_demo <model_path> <image_dir> <dict_path>
+./ppocrv4_rec_demo ppocr_rec_static_w8a16.adla input/ ../input/ppocr_keys_v1.txt
 ```
 
 **Note:** Replace `ppocr_rec_static_w8a16.adla` with your actual model file name.

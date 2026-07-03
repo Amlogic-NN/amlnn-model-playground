@@ -72,7 +72,7 @@ std::vector<std::string> load_dict(const std::string &path);
 
 // Det Functions
 std::tuple<cv::Mat, float> preprocess_det(const cv::Mat &image, const int width, const int height);
-std::vector<int8_t> quantize_input_det(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+// std::vector<int8_t> quantize_input_det(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 std::vector<Object> postprocess_det(float *out, const std::vector<int> &shape, const cv::Mat &image, float box_score_thresh, float box_thresh, float scale);
 std::vector<Object> find_box(const cv::Mat pred_map, const cv::Mat &bit_map, const float box_score_thresh, const float unclip_ratio, const cv::Mat &image, float scale);
 std::vector<cv::Point> get_min_boxes(const std::vector<cv::Point> &in_vec, float &min_side_len, float &perimeter);
@@ -82,8 +82,10 @@ bool cv_point_compare(const cv::Point &a, const cv::Point &b);
 
 // Rec Functions
 cv::Mat preprocess_rec(const cv::Mat &image, const int dest_width, const int dest_height);
-std::vector<int16_t> quantize_input_rec(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+// std::vector<int16_t> quantize_input_rec(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 std::string postprocess_rec(float *out_data, const std::vector<int> &out_shape, const std::vector<std::string> &char_dict);
+
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 
 // Draw
 cv::Mat draw_ocr_results(cv::Mat image, const std::vector<Object> &results);

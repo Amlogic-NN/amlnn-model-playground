@@ -82,18 +82,18 @@ std::tuple<cv::Mat, float> preprocess_det(const cv::Mat &image, const int width,
     return std::make_tuple(float_img, ratio_max);
 }
 
-std::vector<int8_t> quantize_input_det(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
-{
-    std::vector<int8_t> quantized_data(float_img.total() * float_img.channels());
-    const float *src = float_img.ptr<float>();
+// std::vector<int8_t> quantize_input_det(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+// {
+//     std::vector<int8_t> quantized_data(float_img.total() * float_img.channels());
+//     const float *src = float_img.ptr<float>();
 
-    for (size_t i = 0; i < quantized_data.size(); ++i)
-    {
-        float q_val = std::round(src[i] / attr.scale) + attr.zp;
-        quantized_data[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, q_val)));
-    }
-    return quantized_data;
-}
+//     for (size_t i = 0; i < quantized_data.size(); ++i)
+//     {
+//         float q_val = std::round(src[i] / attr.scale) + attr.zp;
+//         quantized_data[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, q_val)));
+//     }
+//     return quantized_data;
+// }
 
 std::vector<Object> postprocess_det(float *out, const std::vector<int> &shape, const cv::Mat &image, float box_score_thresh, float box_thresh, float scale)
 {
@@ -309,30 +309,95 @@ cv::Mat preprocess_rec(const cv::Mat &image, const int dest_width, const int des
     return pre_image;
 }
 
-std::vector<int16_t> quantize_input_rec(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+// std::vector<int16_t> quantize_input_rec(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+// {
+//     std::vector<int16_t> quantized_data;
+
+//     if (float_img.empty() || float_img.type() != CV_32FC3)
+//     {
+//         std::cerr << "quantize_rec_tensor_int16: Invalid input image" << std::endl;
+//         return quantized_data;
+//     }
+
+//     int total_elements = float_img.total() * float_img.channels();
+//     quantized_data.resize(total_elements);
+
+//     const float *src_ptr = float_img.ptr<float>();
+//     float scale = attr.scale;
+//     int32_t zp = attr.zp;
+
+//     for (int i = 0; i < total_elements; ++i)
+//     {
+//         float val = std::round(src_ptr[i] / scale) + zp;
+//         quantized_data[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+//     }
+
+//     return quantized_data;
+// }
+
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
 {
-    std::vector<int16_t> quantized_data;
+    std::vector<uint8_t> tensor_data;
 
     if (float_img.empty() || float_img.type() != CV_32FC3)
     {
-        std::cerr << "quantize_rec_tensor_int16: Invalid input image" << std::endl;
-        return quantized_data;
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
     }
 
     int total_elements = float_img.total() * float_img.channels();
-    quantized_data.resize(total_elements);
-
     const float *src_ptr = float_img.ptr<float>();
-    float scale = attr.scale;
-    int32_t zp = attr.zp;
 
-    for (int i = 0; i < total_elements; ++i)
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
     {
-        float val = std::round(src_ptr[i] / scale) + zp;
-        quantized_data[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_FLOAT16)
+    {
+        cv::Mat fp16_img;
+        float_img.convertTo(fp16_img, CV_16FC3);
+        cv::Mat flat_img = fp16_img.isContinuous() ? fp16_img : fp16_img.clone();
+
+        tensor_data.resize(total_elements * sizeof(uint16_t));
+        std::memcpy(tensor_data.data(), flat_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+        }
+    }
+    else
+    {
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
     }
 
-    return quantized_data;
+    return tensor_data;
 }
 
 std::string postprocess_rec(float *out_data, const std::vector<int> &out_shape, const std::vector<std::string> &char_dict)

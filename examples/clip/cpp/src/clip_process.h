@@ -24,13 +24,13 @@
 // ==================== Model Invoke ====================
 
 // Initialize network from file
-void* init_network_file(const char *model_path);
+void *init_network_file(const char *model_path);
 
 // Run image model inference
-std::vector<float> run_image_model(void* context, const std::vector<float>& input_data);
+std::vector<float> run_image_model(void *context, const std::vector<float> &input_data);
 
 // Run text model inference
-std::vector<float> run_text_model(void* context, const std::vector<int64_t>& input_ids);
+std::vector<float> run_text_model(void *context, const std::vector<int64_t> &input_ids);
 
 // Destroy network
 int destroy_network(void *qcontext);
@@ -38,16 +38,15 @@ int destroy_network(void *qcontext);
 // ==================== Pre/Post Processing ====================
 
 // Image preprocessing
-std::vector<float> preprocess_image(const std::string& image_path);
+std::vector<float> preprocess_image(const std::string &image_path);
 
 // L2 normalize
-std::vector<float> l2_normalize(const std::vector<float>& vec);
+std::vector<float> l2_normalize(const std::vector<float> &vec);
 
 // Softmax
-std::vector<float> softmax(const std::vector<float>& logits);
+std::vector<float> softmax(const std::vector<float> &logits);
 
 // Compute cosine similarity
-float compute_similarity(const std::vector<float>& a, const std::vector<float>& b, float scale = 100.0f);
+float compute_similarity(const std::vector<float> &a, const std::vector<float> &b, float scale = 100.0f);
 
 #endif // CLIP_PROCESS_H
-

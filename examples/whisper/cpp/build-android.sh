@@ -19,13 +19,13 @@ set -e
 
 usage() {
     echo "Usage: $0 [-a <target_abi>]"
-    echo "  -a <target_abi> : Target ABI (default: arm64-v8a)"
+    echo "  -a <target_abi> : Target ABI: 'arm64-v8a' (64-bit) or 'armeabi-v7a' (32-bit) (default: arm64-v8a)"
     echo "  -h              : Show this help message"
     exit 1
 }
 
 # Default values
-TARGET_ABI=arm64-v8a
+TARGET_ABI="arm64-v8a"
 
 # Parse arguments
 while getopts 'a:h' opt; do
@@ -42,6 +42,14 @@ while getopts 'a:h' opt; do
   esac
 done
 
+# Validate target ABI
+if [[ "${TARGET_ABI}" != "arm64-v8a" && "${TARGET_ABI}" != "armeabi-v7a" ]]; then
+    echo "Error: Unsupported TARGET_ABI '${TARGET_ABI}'." >&2
+    echo "Must be 'arm64-v8a' (64-bit) or 'armeabi-v7a' (32-bit)." >&2
+    exit 1
+fi
+
+# Find NDK
 if [ -z "${ANDROID_NDK_PATH}" ]; then
     if [ -n "${ANDROID_NDK}" ]; then
         ANDROID_NDK_PATH=${ANDROID_NDK}
@@ -55,23 +63,35 @@ if [ -z "${ANDROID_NDK_PATH}" ]; then
 fi
 
 ROOT_PWD=$(cd "$(dirname $0)" && pwd)
-BUILD_DIR=${ROOT_PWD}/build/android
 
-echo "Building for Android..."
-echo "NDK_PATH: ${ANDROID_NDK_PATH}"
-echo "TARGET_ABI: ${TARGET_ABI}"
-echo "BUILD_DIR: ${BUILD_DIR}"
+# # Select the new OpenCV paths based on the ABI
+# if [[ "${TARGET_ABI}" == "armeabi-v7a" ]]; then
+#     OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-android-armeabi-v7a/share/OpenCV"
+# else
+#     OPENCV_DIR="${ROOT_PWD}/../../../dependency/opencv/opencv-android-arm64-v8a/share/OpenCV"
+# fi
 
-mkdir -p ${BUILD_DIR}
-cd ${BUILD_DIR}
+BUILD_DIR="${ROOT_PWD}/build/android/${TARGET_ABI}"
 
-cmake -Wno-dev ../../src \
-    -DAMLNN_HOME=${AMLNN_HOME:-} \
-    -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_PATH}/build/cmake/android.toolchain.cmake \
-    -DANDROID_ABI=${TARGET_ABI} \
+echo "==> Building for Android"
+echo "    NDK_PATH   : ${ANDROID_NDK_PATH}"
+echo "    TARGET_ABI : ${TARGET_ABI}"
+echo "    OPENCV_DIR : ${OPENCV_DIR}"
+echo "    BUILD_DIR  : ${BUILD_DIR}"
+
+mkdir -p "${BUILD_DIR}"
+
+# Configure CMake
+cmake -Wno-dev \
+    -S "${ROOT_PWD}/src" \
+    -B "${BUILD_DIR}" \
+    -DAMLNN_HOME="${AMLNN_HOME:-}" \
+    -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_PATH}/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI="${TARGET_ABI}" \
     -DANDROID_PLATFORM=android-24 \
     -DCMAKE_BUILD_TYPE=Release
 
-make -j4
+# Build
+cmake --build "${BUILD_DIR}" --config Release -j4
 
 echo "Build complete. Executable in ${BUILD_DIR}/whisper_demo"

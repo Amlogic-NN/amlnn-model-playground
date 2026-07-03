@@ -1,8 +1,7 @@
 #!/bin/bash
-set -e
 
 #
-# Copyright (C) 2024-2025 Amlogic, Inc. All rights reserved.
+# Copyright (C) 2026 Amlogic, Inc. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +15,7 @@ set -e
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+set -e
 
 usage() {
     echo "Usage: $0 [-a <target_abi>]"
@@ -57,19 +57,21 @@ fi
 ROOT_PWD=$(cd "$(dirname $0)" && pwd)
 BUILD_DIR=${ROOT_PWD}/build/android
 
-echo "Building LLMs for Android (ndk-build)..."
+echo "Building for Android..."
 echo "NDK_PATH: ${ANDROID_NDK_PATH}"
 echo "TARGET_ABI: ${TARGET_ABI}"
 echo "BUILD_DIR: ${BUILD_DIR}"
 
 mkdir -p ${BUILD_DIR}
+cd ${BUILD_DIR}
 
-${ANDROID_NDK_PATH}/ndk-build \
-    NDK_PROJECT_PATH="${ROOT_PWD}" \
-    APP_BUILD_SCRIPT="${ROOT_PWD}/Android.mk" \
-    NDK_APPLICATION_MK="${ROOT_PWD}/Application.mk" \
-    NDK_OUT="${BUILD_DIR}/obj" \
-    NDK_LIBS_OUT="${BUILD_DIR}/libs" \
-    APP_ABI="${TARGET_ABI}"
+cmake -Wno-dev ../../ \
+    -DAMLNN_HOME=${AMLNN_HOME:-} \
+    -DCMAKE_TOOLCHAIN_FILE=${ANDROID_NDK_PATH}/build/cmake/android.toolchain.cmake \
+    -DANDROID_ABI=${TARGET_ABI} \
+    -DANDROID_PLATFORM=android-24 \
+    -DCMAKE_BUILD_TYPE=Release
 
-echo "Build complete. Libs in ${BUILD_DIR}/libs"
+make -j$(nproc)
+
+echo "Build complete. Executable in ${BUILD_DIR}/LLM_demo"

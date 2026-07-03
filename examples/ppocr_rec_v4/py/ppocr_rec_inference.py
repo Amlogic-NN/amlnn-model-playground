@@ -44,12 +44,12 @@ def load_dictionary(dict_path):
     return dictionary
 
 
-def preprocess(img_path, new_shape=(320, 48), data_format='NHWC', s=1.0, zp=0, tensor_type=2):
+def preprocess(img_path, new_shape=(320, 48), data_format='NHWC', s=0.0, zp=0, tensor_type=None):
     """
     PPOCR Rec Preprocess:
     1. Aspect-ratio preserving resize and pad right with black.
-    2. Normalize: (img - 127.5) / 127.5
-    3. Quantize using hardware scale (s), zero-point (zp), and tensor_type.
+    2. Normalize: (img - MEAN) / STD
+    3. Formatting & Quantization (Outputs FP32, INT8, or UINT8).
     """
     original_img = cv2.imread(str(img_path))
     if original_img is None:
@@ -85,18 +85,19 @@ def preprocess(img_path, new_shape=(320, 48), data_format='NHWC', s=1.0, zp=0, t
     else:
         raise ValueError(f"Unsupported data format: {data_format}.")
 
-    # 4. Hardware Quantization
-    val = np.round(input_tensor / s + zp)
+    # 4. Quantization (Int8/UInt8/INT16) or Fallback to Native Float
 
-    if tensor_type == 2:   # INT8
-        input_tensor = np.clip(val, -128, 127).astype(np.int8)
-    elif tensor_type == 3: # UINT8
-        input_tensor = np.clip(val, 0, 255).astype(np.uint8)
-    elif tensor_type == 4: # INT16
-        input_tensor = np.clip(val, -32768, 32767).astype(np.int16)
-    else:
-        raise ValueError(f"Unsupported tensor type: {tensor_type}.")
+    if tensor_type not in [0, 2, 3, 4]:
+        raise ValueError(f"Unsupported tensor_type: {tensor_type}. Allowed values are 0 (FP32/FP16), 2 (Int8), 3 (UInt8), or 4 (Int16).")
 
+    if tensor_type in [2, 3, 4]:
+        raw_val = np.round(input_tensor / s + zp)
+        if tensor_type == 2:
+            input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
+        elif tensor_type == 3:
+            input_tensor = np.clip(raw_val, 0, 255).astype(np.uint8)
+        elif tensor_type == 4:
+            input_tensor = np.clip(raw_val, -32768, 32767).astype(np.int16)
     return input_tensor, original_img
 
 
@@ -148,7 +149,7 @@ def draw_detections(image, text, score):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PPOCR Rec Demo")
+    parser = argparse.ArgumentParser(description="PPOCR Rec Demo (Universal: FP16/INT8/UINT8)")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     parser.add_argument('--dict-path', required=True, help='Path to PP-OCR dictionary.txt file')
@@ -164,16 +165,19 @@ def main():
     amlnn.init_runtime(mode="native", enable_perf=True)
     amlnn.load_model(path=args.model_path)
 
-    tensor_info = amlnn.get_tensor_info()
     print(amlnn.get_sdk_version())
 
-    # 3. Retrieve Quantization Attributes
+    # Dynamically grab the tensor info for quantization parameters
+    tensor_info = amlnn.get_tensor_info()
+
     tensor_attr = tensor_info["inputs"][0]
     s = float(tensor_attr["scale"])
     zp = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
 
-    # 4. Find Images
+    print(f"Model Input Params -> Scale: {s}, ZP: {zp}, Type: {tensor_type}")
+
+    # 3. Find Images
     image_files = []
     for ext in ['*.jpg', '*.jpeg', '*.png', '*.bmp']:
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
@@ -185,24 +189,26 @@ def main():
         amlnn.uninit()
         return
 
-    # 5. Generate Output Directory
+    # 4. Generate Output Directory
     model_stem = Path(args.model_path).stem
     result_dir = f"{model_stem}_result"
     os.makedirs(result_dir, exist_ok=True)
 
-    # 6. Process loop
+    # 5. Process loop
     for i, image_path in enumerate(image_files, 1):
         print(f"=" * 60)
         print(f"Processing image {i}/{len(image_files)}: {os.path.basename(image_path)}")
         print(f"=" * 60)
 
         try:
-            # Preprocess (Resizing, Normalizing, Quantizing)
+            # Preprocess dynamically adjusts to FP32, INT8, or UINT8
             input_tensor, original_img = preprocess(
                 image_path,
                 new_shape=(REC_MODEL_WIDTH, REC_MODEL_HEIGHT),
                 data_format='NHWC',
-                s=s, zp=zp, tensor_type=tensor_type
+                s=s,
+                zp=zp,
+                tensor_type=tensor_type
             )
 
             # Inference
@@ -227,9 +233,6 @@ def main():
 
     print(f"=" * 60)
     print(amlnn.get_perf_info())
-
-    # Optional Visualization
-    # amlnn.perf_visualize()
 
     # Clean up
     amlnn.uninit()

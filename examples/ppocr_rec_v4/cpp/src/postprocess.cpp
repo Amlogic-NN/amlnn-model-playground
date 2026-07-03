@@ -13,10 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include "postprocess.h"
 #include <algorithm>
 #include <fstream>
 #include <cmath>
+#include "nnsdk2.h"
 
 std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
 {
@@ -74,30 +76,70 @@ cv::Mat preprocess(const cv::Mat &image, const int dest_width, const int dest_he
     return pre_image;
 }
 
-std::vector<int16_t> quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+// Robust input prep
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
 {
-    std::vector<int16_t> quantized_data;
+    std::vector<uint8_t> tensor_data;
 
     if (float_img.empty() || float_img.type() != CV_32FC3)
     {
-        std::cerr << "quantize_rec_tensor_int16: Invalid input image" << std::endl;
-        return quantized_data;
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
     }
 
     int total_elements = float_img.total() * float_img.channels();
-    quantized_data.resize(total_elements);
-
     const float *src_ptr = float_img.ptr<float>();
-    float scale = attr.scale;
-    int32_t zp = attr.zp;
 
-    for (int i = 0; i < total_elements; ++i)
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
     {
-        float val = std::round(src_ptr[i] / scale) + zp;
-        quantized_data[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_FLOAT16)
+    {
+        cv::Mat fp16_img;
+        float_img.convertTo(fp16_img, CV_16FC3);
+        cv::Mat flat_img = fp16_img.isContinuous() ? fp16_img : fp16_img.clone();
+
+        tensor_data.resize(total_elements * sizeof(uint16_t));
+        std::memcpy(tensor_data.data(), flat_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+        }
+    }
+    else
+    {
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
     }
 
-    return quantized_data;
+    return tensor_data;
 }
 
 std::string postprocess_rec(float *out_data, const std::vector<int> &out_shape, const std::vector<std::string> &char_dict)
@@ -119,7 +161,6 @@ std::string postprocess_rec(float *out_data, const std::vector<int> &out_shape, 
         float raw_max_score = -1.0f;
         int argmax_idx = -1;
 
-        // 1. Find the raw max score
         for (int c = 0; c < num_classes; ++c)
         {
             float val = out_data[t * num_classes + c];
@@ -130,7 +171,6 @@ std::string postprocess_rec(float *out_data, const std::vector<int> &out_shape, 
             }
         }
 
-        // 3. CTC Decoding logic
         if (argmax_idx != blank_idx && argmax_idx != pre_argmax_idx)
         {
             int char_idx = argmax_idx - 1;

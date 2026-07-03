@@ -50,7 +50,7 @@ def main():
     parser.add_argument("--det-onnx", required=True, help="Path to Detection ONNX model")
     parser.add_argument("--rec-onnx", required=True, help="Path to Recognition ONNX model")
     parser.add_argument("--det-dataset-path", required=True, help="Path to Detection quant dataset")
-    parser.add_argument("--rec-dataset-path", required=True, help="Path to Recognition quant dataset")
+    parser.add_argument("--rec-dataset-path", help="Path to Recognition quant dataset")
     parser.add_argument("--target-platform", required=True, help="Platform ID, e.g. 001, 002, 003")
     parser.add_argument("--adla", default="../model", help="Optional output .adla path")
     args = parser.parse_args()
@@ -90,11 +90,14 @@ def main():
         normalization_mean=[REC_MEAN.tolist()],
         normalization_std=[REC_STD.tolist()],
         quantized_dtype="w8a16",
-        activation_dtype="i16",
+        activation_dtype="fp16",
         quantized_method ="perchannel",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
-    amlnn.compile(dataset=args.rec_dataset_path)
+
+    # NOTE: You will have add the dataset-path argument IF YOU ARE QUANTIZING TO INT8/UINT8/INT16
+    # amlnn.compile(dataset=args.rec_dataset_path)
+    amlnn.compile()
     amlnn.export_adla()
 
     if args.adla:
