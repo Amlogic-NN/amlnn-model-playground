@@ -69,10 +69,11 @@ def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.003789, z
     else:
         raise ValueError(f"Unsupported format: {data_format}")
 
+    val = np.round(input_tensor / s + zp)
     if tensor_type == 2:
-        input_tensor = np.round(input_tensor / s + zp).astype(np.int8)
+        input_tensor = np.clip(val, -128, 127).astype(np.int8)
     elif tensor_type == 3:
-        input_tensor = np.round(input_tensor / s + zp).astype(np.uint8)
+        input_tensor = np.clip(val, 0, 255).astype(np.uint8)
 
     return input_tensor, original_img, scale, pad
 
@@ -240,7 +241,7 @@ def draw_detections(img, detections, save_path):
     print(f"    Result saved to: {save_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Yolov7 Demo")
+    parser = argparse.ArgumentParser(description="Yoloe Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     args = parser.parse_args()

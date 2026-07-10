@@ -146,29 +146,67 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     return std::make_tuple(img_float, scale, std::make_tuple(pad_left, pad_top));
 }
 
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point)
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
 {
+    std::vector<uint8_t> tensor_data;
+
     if (float_img.empty() || float_img.type() != CV_32FC3)
-        return cv::Mat();
-
-    cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8SC3);
-    const float *src_ptr = (const float *)float_img.data;
-    int8_t *dst_ptr = (int8_t *)quantized_img.data;
-
-    int total_elements = float_img.total() * float_img.channels();
-    for (int i = 0; i < total_elements; ++i)
     {
-        float val = std::round(src_ptr[i] / scale) + zero_point;
-        dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
     }
 
-    return quantized_img;
+    int total_elements = float_img.total() * float_img.channels();
+    const float *src_ptr = float_img.ptr<float>();
+
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
+    {
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+        }
+    }
+    else
+    {
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
+    }
+
+    return tensor_data;
 }
 
-std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
-                                   const std::vector<std::vector<int>> &out_shapes,
+std::vector<Detection> postprocess(const std::vector<float*>& out_ptrs,
+                                   const std::vector<std::vector<int>>& out_shapes,
+                                   int input_h, int input_w,
                                    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-                                   float conf_thresh, float iou_threshold)
+                                   float conf_thresh, float iou_threshold, int reg_max)
 {
     float scale = std::get<1>(input_tuple);
     int pad_left = std::get<0>(std::get<2>(input_tuple));
@@ -179,127 +217,85 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
     float safe_thresh = std::max(1e-5f, std::min(conf_thresh, 1.0f - 1e-5f));
     float inv_thresh = std::log(safe_thresh / (1.0f - safe_thresh));
 
-    for (size_t out_idx = 0; out_idx < out_ptrs.size(); ++out_idx)
-    {
-        float *data = out_ptrs[out_idx];
-        const auto &shape = out_shapes[out_idx];
+    for (size_t out_idx = 0; out_idx < out_ptrs.size(); ++out_idx) {
+        float* data = out_ptrs[out_idx];
+        const auto& shape = out_shapes[out_idx];
 
-        int channels = 0, num_cells = 1;
-        bool is_nchw = true;
-
-        if (shape.size() >= 2)
-        {
-            if (shape.size() == 3)
-            {
-                if (shape[1] == shape[2])
-                {
-                    channels = shape[0];
-                    num_cells = shape[1] * shape[2];
-                    is_nchw = true;
-                }
-                else
-                {
-                    channels = shape[2];
-                    num_cells = shape[0] * shape[1];
-                    is_nchw = false;
-                }
-            }
-            else if (shape.size() == 2)
-            {
-                auto is_square = [](int n)
-                { int r = std::round(std::sqrt(n)); return r * r == n; };
-                if (is_square(shape[1]) && !is_square(shape[0]))
-                {
-                    channels = shape[0];
-                    num_cells = shape[1];
-                    is_nchw = true;
-                }
-                else if (is_square(shape[0]) && !is_square(shape[1]))
-                {
-                    channels = shape[1];
-                    num_cells = shape[0];
-                    is_nchw = false;
-                }
-                else
-                {
-                    if (shape[0] < shape[1])
-                    {
-                        channels = shape[0];
-                        num_cells = shape[1];
-                        is_nchw = true;
-                    }
-                    else
-                    {
-                        channels = shape[1];
-                        num_cells = shape[0];
-                        is_nchw = false;
-                    }
-                }
-            }
+        // 1.Shape Parsing (Batch, Height, Width, Channels)
+        int height = 1, width = 1, channels = 1;
+        if (shape.size() == 4) {
+            height = shape[1];
+            width = shape[2];
+            channels = shape[3];
+        } else if (shape.size() == 3) {
+            height = shape[0];
+            width = shape[1];
+            channels = shape[2];
+        } else {
+            std::cerr << "Unexpected shape dimensions!" << std::endl;
+            continue;
         }
 
-        int num_classes = channels - 64;
-        int reg_max = 16;
-        int grid_size = static_cast<int>(std::round(std::sqrt(num_cells)));
-        float stride = 416.0f / grid_size;
+        int num_cells = height * width;
+        int dfl_channel = 4 * reg_max;
+        int num_classes = channels - dfl_channel;
 
-        for (int i = 0; i < num_cells; ++i)
-        {
+        // 2. Direct Stride Calculation
+        float stride_x = static_cast<float>(input_w) / width;
+        float stride_y = static_cast<float>(input_h) / height;
+
+        for (int i = 0; i < num_cells; ++i) {
             float max_raw_score = -1e9f;
             int class_id = -1;
 
-            for (int c = 0; c < num_classes; ++c)
-            {
-                int c_idx = 64 + c;
-                int idx = is_nchw ? (c_idx * num_cells + i) : (i * channels + c_idx);
-                float val = data[idx];
-                if (val > max_raw_score)
-                {
+            // 3. Fast Class Extraction (Data layout: 4 * regmax DFL + N Classes)
+            const float* cls_ptr = data + (i * channels) + dfl_channel;
+            for (int c = 0; c < num_classes; ++c) {
+                float val = cls_ptr[c];
+                if (val > max_raw_score) {
                     max_raw_score = val;
                     class_id = c;
                 }
             }
 
-            if (max_raw_score > inv_thresh)
-            {
+            // Early Stopping
+            if (max_raw_score > inv_thresh) {
                 float final_score = 1.0f / (1.0f + std::exp(-max_raw_score));
-
                 float dfl_vals[4] = {0.0f};
-                for (int d = 0; d < 4; ++d)
-                {
+
+                for (int d = 0; d < 4; ++d) {
                     float max_dfl = -1e9f;
                     int base_dfl_idx = d * reg_max;
+                    const float* dfl_ptr = data + (i * channels) + base_dfl_idx;
 
-                    for (int r = 0; r < reg_max; ++r)
-                    {
-                        int c_idx = base_dfl_idx + r;
-                        int idx = is_nchw ? (c_idx * num_cells + i) : (i * channels + c_idx);
-                        max_dfl = std::max(max_dfl, data[idx]);
+                    // Pass 1: Find Max for Softmax stability
+                    for (int r = 0; r < reg_max; ++r) {
+                        max_dfl = std::max(max_dfl, dfl_ptr[r]);
                     }
 
+                    // Pass 2: Softmax & dot product
                     float sum_exp = 0.0f, dot_prod = 0.0f;
-                    for (int r = 0; r < reg_max; ++r)
-                    {
-                        int c_idx = base_dfl_idx + r;
-                        int idx = is_nchw ? (c_idx * num_cells + i) : (i * channels + c_idx);
-                        float exp_val = std::exp(data[idx] - max_dfl);
+                    for (int r = 0; r < reg_max; ++r) {
+                        float exp_val = std::exp(dfl_ptr[r] - max_dfl);
                         sum_exp += exp_val;
                         dot_prod += exp_val * r;
                     }
                     dfl_vals[d] = dot_prod / sum_exp;
                 }
 
-                int gy = i / grid_size;
-                int gx = i % grid_size;
+                // 4. Exact Grid Mapping
+                int gy = i / width;
+                int gx = i % width;
 
-                float cx = (gx + 0.5f) * stride;
-                float cy = (gy + 0.5f) * stride;
+                float cx = (gx + 0.5f) * stride_x;
+                float cy = (gy + 0.5f) * stride_y;
 
-                float x1 = cx - dfl_vals[0] * stride;
-                float y1 = cy - dfl_vals[1] * stride;
-                float x2 = cx + dfl_vals[2] * stride;
-                float y2 = cy + dfl_vals[3] * stride;
+                float x1 = cx - dfl_vals[0] * stride_x;
+                float y1 = cy - dfl_vals[1] * stride_y;
+                float x2 = cx + dfl_vals[2] * stride_x;
+                float y2 = cy + dfl_vals[3] * stride_y;
 
+                // Map coordinates back to the original full-resolution image
                 float x1_orig = std::max(0.0f, (x1 - pad_left) / scale);
                 float y1_orig = std::max(0.0f, (y1 - pad_top) / scale);
                 float x2_orig = std::max(0.0f, (x2 - pad_left) / scale);

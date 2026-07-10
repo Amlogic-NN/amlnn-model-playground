@@ -71,7 +71,7 @@ examples/ppocr_det_v4/model/ppocr_det_static_w8a8.adla
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**

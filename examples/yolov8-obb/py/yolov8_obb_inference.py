@@ -43,7 +43,6 @@ class_names = {
   14: 'swimming pool'
 }
 
-
 def letterbox(img, new_shape=(1024, 1024), color=(114, 114, 114)):
     shape = img.shape[:2]  # [height, width]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])

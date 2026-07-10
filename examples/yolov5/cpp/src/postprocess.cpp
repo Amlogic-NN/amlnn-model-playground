@@ -18,8 +18,18 @@
 #include <cmath>
 #include <algorithm>
 
-#define LOGI(...) do { printf(__VA_ARGS__); printf("\n"); } while(0)
-#define LOGE(...) do { fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); } while(0)
+#define LOGI(...)            \
+    do                       \
+    {                        \
+        printf(__VA_ARGS__); \
+        printf("\n");        \
+    } while (0)
+#define LOGE(...)                     \
+    do                                \
+    {                                 \
+        fprintf(stderr, __VA_ARGS__); \
+        fprintf(stderr, "\n");        \
+    } while (0)
 
 const std::vector<std::string> COCO_CLASSES = {
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -30,13 +40,12 @@ const std::vector<std::string> COCO_CLASSES = {
     "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "doughnut", "cake", "chair", "couch",
     "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
     "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush"
-};
+    "hair drier", "toothbrush"};
 
 const float ANCHORS[3][3][2] = {
-    {{10, 13}, {16, 30}, {33, 23}},      // Stride 8
-    {{30, 61}, {62, 45}, {59, 119}},     // Stride 16
-    {{116, 90}, {156, 198}, {373, 326}}  // Stride 32
+    {{10, 13}, {16, 30}, {33, 23}},     // Stride 8
+    {{30, 61}, {62, 45}, {59, 119}},    // Stride 16
+    {{116, 90}, {156, 198}, {373, 326}} // Stride 32
 };
 
 std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
@@ -52,7 +61,8 @@ std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
     return shape;
 }
 
-static float compute_iou(const Detection& det1, const Detection& det2) {
+static float compute_iou(const Detection &det1, const Detection &det2)
+{
     float xx1 = std::max(det1.x1, det2.x1);
     float yy1 = std::max(det1.y1, det2.y1);
     float xx2 = std::min(det1.x2, det2.x2);
@@ -68,23 +78,29 @@ static float compute_iou(const Detection& det1, const Detection& det2) {
     return inter / (area1 + area2 - inter);
 }
 
-static std::vector<Detection> nms(std::vector<Detection>& detections, float iou_threshold) {
-    if (detections.empty()) return {};
+static std::vector<Detection> nms(std::vector<Detection> &detections, float iou_threshold)
+{
+    if (detections.empty())
+        return {};
 
-    std::sort(detections.begin(), detections.end(), [](const Detection& a, const Detection& b) {
-        return a.score > b.score;
-    });
+    std::sort(detections.begin(), detections.end(), [](const Detection &a, const Detection &b)
+              { return a.score > b.score; });
 
     std::vector<Detection> final_detections;
     std::vector<bool> removed(detections.size(), false);
 
-    for (size_t i = 0; i < detections.size(); ++i) {
-        if (removed[i]) continue;
+    for (size_t i = 0; i < detections.size(); ++i)
+    {
+        if (removed[i])
+            continue;
         final_detections.push_back(detections[i]);
 
-        for (size_t j = i + 1; j < detections.size(); ++j) {
-            if (removed[j]) continue;
-            if (compute_iou(detections[i], detections[j]) > iou_threshold) {
+        for (size_t j = i + 1; j < detections.size(); ++j)
+        {
+            if (removed[j])
+                continue;
+            if (compute_iou(detections[i], detections[j]) > iou_threshold)
+            {
                 removed[j] = true;
             }
         }
@@ -92,13 +108,21 @@ static std::vector<Detection> nms(std::vector<Detection>& detections, float iou_
     return final_detections;
 }
 
-std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape) {
+std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape)
+{
     cv::Mat img_rgb;
-    if (img.empty()) { LOGE("Preprocess received empty image"); return {}; }
+    if (img.empty())
+    {
+        LOGE("Preprocess received empty image");
+        return {};
+    }
 
-    if (img.channels() == 4) cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
-    else if (img.channels() == 3) cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
-    else img_rgb = img.clone();
+    if (img.channels() == 4)
+        cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
+    else if (img.channels() == 3)
+        cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
+    else
+        img_rgb = img.clone();
 
     int orig_h = img.rows, orig_w = img.cols;
     float scale = std::min(static_cast<float>(std::get<0>(new_shape)) / orig_h,
@@ -118,7 +142,7 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
 
     cv::Mat img_padded;
     cv::copyMakeBorder(img_resized, img_padded, pad_top, pad_bottom, pad_left, pad_right,
-                      cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
+                       cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 
     cv::Mat img_float;
     img_padded.convertTo(img_float, CV_32F, 1.0 / 255.0);
@@ -126,28 +150,32 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     return std::make_tuple(img_float, scale, std::make_tuple(pad_left, pad_top));
 }
 
-cv::Mat quantize_input(const cv::Mat& float_img, float scale, int32_t zero_point) {
-    if (float_img.empty() || float_img.type() != CV_32FC3) return cv::Mat();
+cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point)
+{
+    if (float_img.empty() || float_img.type() != CV_32FC3)
+        return cv::Mat();
 
     cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8SC3);
-    const float* src_ptr = (const float*)float_img.data;
-    int8_t* dst_ptr = (int8_t*)quantized_img.data;
+    const float *src_ptr = (const float *)float_img.data;
+    int8_t *dst_ptr = (int8_t *)quantized_img.data;
 
     int total_elements = float_img.total() * float_img.channels();
-    for (int i = 0; i < total_elements; ++i) {
+    for (int i = 0; i < total_elements; ++i)
+    {
         float val = std::round(src_ptr[i] / scale) + zero_point;
         dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
     }
     return quantized_img;
 }
 
-inline float sigmoid(float x) {
+inline float sigmoid(float x)
+{
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-std::vector<Detection> postprocess(float* out0_data, const std::vector<int>& out0_shape,
-                                   float* out1_data, const std::vector<int>& out1_shape,
-                                   float* out2_data, const std::vector<int>& out2_shape,
+std::vector<Detection> postprocess(float *out0_data, const std::vector<int> &out0_shape,
+                                   float *out1_data, const std::vector<int> &out1_shape,
+                                   float *out2_data, const std::vector<int> &out2_shape,
                                    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
                                    float conf_thresh, float iou_threshold)
 {
@@ -157,37 +185,47 @@ std::vector<Detection> postprocess(float* out0_data, const std::vector<int>& out
 
     std::vector<Detection> detections_orig;
 
-    auto process_branch = [&](float* data, const std::vector<int>& shape) {
+    auto process_branch = [&](float *data, const std::vector<int> &shape)
+    {
         int total_elements = 1;
-        for (int d : shape) total_elements *= d;
+        for (int d : shape)
+            total_elements *= d;
 
         // Dynamically deduce grid size from total memory block assuming 255 channels
         int grid_size = static_cast<int>(std::round(std::sqrt(total_elements / 255.0f)));
         int stride = 640 / grid_size;
-        int anchor_idx = (stride == 8) ? 0 : (stride == 16) ? 1 : 2;
+        int anchor_idx = (stride == 8) ? 0 : (stride == 16) ? 1
+                                                            : 2;
 
-        for (int y = 0; y < grid_size; ++y) {
-            for (int x = 0; x < grid_size; ++x) {
-                for (int a = 0; a < 3; ++a) {
+        for (int y = 0; y < grid_size; ++y)
+        {
+            for (int x = 0; x < grid_size; ++x)
+            {
+                for (int a = 0; a < 3; ++a)
+                {
                     // Standard NHWC memory layout index
                     int base_idx = y * (grid_size * 255) + x * 255 + a * 85;
 
                     float obj_conf = sigmoid(data[base_idx + 4]);
-                    if (obj_conf < conf_thresh) continue;
+                    if (obj_conf < conf_thresh)
+                        continue;
 
                     float max_cls_prob = 0.0f;
                     int best_cls = -1;
 
-                    for (int c = 0; c < 80; ++c) {
+                    for (int c = 0; c < 80; ++c)
+                    {
                         float cls_prob = sigmoid(data[base_idx + 5 + c]);
-                        if (cls_prob > max_cls_prob) {
+                        if (cls_prob > max_cls_prob)
+                        {
                             max_cls_prob = cls_prob;
                             best_cls = c;
                         }
                     }
 
                     float final_score = obj_conf * max_cls_prob;
-                    if (final_score >= conf_thresh) {
+                    if (final_score >= conf_thresh)
+                    {
                         float tx = data[base_idx + 0];
                         float ty = data[base_idx + 1];
                         float tw = data[base_idx + 2];
@@ -226,7 +264,8 @@ std::vector<Detection> postprocess(float* out0_data, const std::vector<int>& out
     return nms(detections_orig, iou_threshold);
 }
 
-cv::Scalar get_color(float conf) {
+cv::Scalar get_color(float conf)
+{
     float hue = fmod(conf * 137.508f, 360.0f);
     cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(hue / 2.0f, 204, 230));
     cv::Mat rgb;
@@ -234,10 +273,12 @@ cv::Scalar get_color(float conf) {
     return cv::Scalar(rgb.at<cv::Vec3b>(0, 0)[0], rgb.at<cv::Vec3b>(0, 0)[1], rgb.at<cv::Vec3b>(0, 0)[2]);
 }
 
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections) {
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections)
+{
     cv::Mat drawn_image = image.clone();
 
-    for (const auto& det : detections) {
+    for (const auto &det : detections)
+    {
         cv::Scalar color = get_color(det.score);
 
         cv::rectangle(drawn_image,

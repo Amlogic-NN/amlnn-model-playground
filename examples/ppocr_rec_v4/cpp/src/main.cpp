@@ -117,26 +117,8 @@ int main(int argc, char **argv)
         std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
         std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
 
-        float *final_out_ptr = nullptr;
-        std::vector<float> fp32_converted_out;
-
-        if (output_attr.type == AMLNN_TENSOR_FLOAT16)
-        {
-            cv::Mat fp16_out(1, output_attr.n_elems, CV_16FC1, outData[0].buf);
-            cv::Mat fp32_out;
-            fp16_out.convertTo(fp32_out, CV_32FC1); // Hardware-accelerated OpenCV conversion
-
-            fp32_converted_out.assign((float *)fp32_out.data, (float *)fp32_out.data + output_attr.n_elems);
-            final_out_ptr = fp32_converted_out.data();
-        }
-        else
-        {
-            // Assume Float32 output
-            final_out_ptr = (float *)outData[0].buf;
-        }
-
         // 5. Postprocess
-        std::string result = postprocess_rec(final_out_ptr, out_shape, char_dict);
+        std::string result = postprocess_rec((float *)outData[0].buf, out_shape, char_dict);
 
         // 6. Print output
         printf("[RESULT] Recognized Text: %s\n", result.c_str());

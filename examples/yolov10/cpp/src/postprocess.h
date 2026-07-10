@@ -43,6 +43,6 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
                                    float conf_thresh, float iou_threshold,
                                    int model_input_size = 640);
 
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections, const std::vector<std::string> &class_names);
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections);
 
 #endif // POSTPROCESS_H

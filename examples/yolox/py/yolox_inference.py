@@ -28,17 +28,24 @@ from amlnn.api import AMLNN
 MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32)
 STD  = np.array([58.395, 57.12, 57.375], dtype=np.float32)
 
-# COCO 80 class names
-def load_class_names(path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            class_names = [line.strip() for line in f.readlines() if line.strip()]
-        return class_names
-    except Exception as e:
-        print(f"Warning: Could not load class names from '{path}'. Fallback to generic IDs.")
-        return [f"class_{i}" for i in range(80)]
-
-CLASS_NAMES = load_class_names("../input/coco_80_names.txt")
+CLASS_NAMES = {
+    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane',
+    5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light',
+    10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird',
+    15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow',
+    20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack',
+    25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee',
+    30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat',
+    35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle',
+    40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon',
+    45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange',
+    50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'doughnut',
+    55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed',
+    60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse',
+    65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven',
+    70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock',
+    75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
+}
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
     shape = img.shape[:2]
@@ -74,10 +81,11 @@ def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.017912, z
     else:
         raise ValueError(f"Unsupported data format: {data_format}. Only 'NCHW' and 'NHWC' are supported.")
 
+    val = np.round(input_tensor / s + zp)
     if tensor_type == 2:
-        input_tensor = np.round(input_tensor / s + zp).astype(np.int8)
+        input_tensor = np.clip(val, -128, 127).astype(np.int8)
     elif tensor_type == 3:
-        input_tensor = np.round(input_tensor / s + zp).astype(np.uint8)
+        input_tensor = np.clip(val, 0, 255).astype(np.uint8)
 
     return input_tensor, original_img, scale, pad
 
@@ -248,16 +256,17 @@ def main():
         print(f"  - {os.path.basename(img_file)}")
     print()
 
+    tensor_attr = tensor_info["inputs"][0]
+    s = float(tensor_attr["scale"])
+    zp = int(tensor_attr["zp"])
+    tensor_type = int(tensor_attr["type"])
+
     for i, image_path in enumerate(image_files, 1):
         print(f"=" * 60)
         print(f"Processing image {i}/{len(image_files)}: {os.path.basename(image_path)}")
         print(f"=" * 60)
 
         try:
-            tensor_attr = tensor_info["inputs"][0]
-            s = float(tensor_attr["scale"])
-            zp = int(tensor_attr["zp"])
-            tensor_type = int(tensor_attr["type"])
             input_tensor, original_img, scale, pad = preprocess(image_path, new_shape=(640, 640), data_format='NHWC', s=s, zp=zp, tensor_type=tensor_type)
 
             outputs = amlnn.inference(inputs=[input_tensor])

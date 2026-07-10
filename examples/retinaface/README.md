@@ -107,7 +107,7 @@ examples/retinaface/model/RetinaFace_int8_A311D2.adla
 Install dependencies on the target device:
 
 ```bash
-pip install numpy opencv-python amlnn-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 Run image inference:
@@ -297,5 +297,4 @@ adb pull /data/local/tmp/RetinaFace_int8_A311D2_result
 Example result:
 
 ![alt text](result.png)
-
 

@@ -101,7 +101,7 @@ examples/sensevoice/model/SenseVoice_w8a16_A311Y3.adla
 Install dependencies on the target device:
 
 ```bash
-pip install numpy kaldi-native-fbank amlnn-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install numpy kaldi-native-fbank amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 Run inference:

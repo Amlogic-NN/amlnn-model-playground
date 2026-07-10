@@ -82,10 +82,11 @@ def preprocess(img_path, new_shape=(480, 640), data_format='NHWC', s=0.003851, z
     else:
         raise ValueError(f"Unsupported data format: {data_format}. Only 'NCHW' and 'NHWC' are supported.")
 
+    val = np.round(input_tensor / s + zp)
     if tensor_type == 2:
-        input_tensor = np.round(input_tensor / s + zp).astype(np.int8)
+        input_tensor = np.clip(val, -128, 127).astype(np.int8)
     elif tensor_type == 3:
-        input_tensor = np.round(input_tensor / s + zp).astype(np.uint8)
+        input_tensor = np.clip(val, 0, 255).astype(np.uint8)
 
     return input_tensor, original_img, scale, pad
 

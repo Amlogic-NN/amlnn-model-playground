@@ -21,7 +21,6 @@
 #include <unordered_map>
 #include <numeric>
 
-
 const int NUM_CLASSES = 13;
 const std::string WORLD_CLASSES[13] = {
     "short_sleeved_shirt", "long_sleeved_shirt", "short_sleeved_outwear",

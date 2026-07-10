@@ -33,12 +33,13 @@ std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr);
 
 std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
 
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point);
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 
-std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
-                                   const std::vector<std::vector<int>> &out_shapes,
+std::vector<Detection> postprocess(const std::vector<float*>& out_ptrs,
+                                   const std::vector<std::vector<int>>& out_shapes,
+                                   int input_h, int input_w,
                                    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-                                   float conf_thresh, float iou_threshold);
+                                   float conf_thresh, float iou_threshold, int reg_max);
 
 cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections);
 

@@ -25,10 +25,9 @@
 #include "nnsdk2.h"
 #include "model_loader.h"
 
-const int MODEL_INPUT_WIDTH = 416;
-const int MODEL_INPUT_HEIGHT = 416;
-const float SCORE_THRESHOLD = 0.3f;
-const float NMS_THRESHOLD = 0.45f;
+const float SCORE_THRESHOLD = 0.25f;
+const float NMS_THRESHOLD = 0.4f;
+const int REG_MAX = 16;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
@@ -57,6 +56,20 @@ int main(int argc, char **argv)
 
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
+    std::vector<int> input_shape = get_tensor_shape(input_attr);
+
+    std::cout << "Input shape: [";
+    for (size_t i = 0; i < input_shape.size(); ++i)
+    {
+        std::cout << input_shape[i];
+        if (i + 1 < input_shape.size())
+            std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
+
+    int input_height = input_shape[0];
+    int input_width = input_shape[1];
+
     std::vector<amlnn_tensor_attr> out_attrs;
     std::vector<std::vector<int>> out_shapes;
     for (int i = 0; i < io_num.n_output; ++i)
@@ -80,13 +93,18 @@ int main(int argc, char **argv)
         std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
         std::cout << "============================================================" << std::endl;
 
-        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-        cv::Mat quantized_img = quantize_input(preprocessed, input_attr.scale, input_attr.zp);
+        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(input_height, input_width));
+        std::vector<uint8_t> prepared_data = prepare_input_tensor(preprocessed, input_attr);
+
+        if (prepared_data.empty())
+        {
+            std::cerr << "Failed to prepare input tensor." << std::endl;
+            continue;
+        }
 
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        size_t input_size = input_attr.n_elems * sizeof(int8_t);
-        if (!run_network(context, quantized_img.data, input_size, outData))
+        if (!run_network(context, prepared_data.data(), prepared_data.size(), outData))
         {
             std::cerr << "Failed to run network" << std::endl;
             return -1;
@@ -107,9 +125,11 @@ int main(int argc, char **argv)
 
         std::vector<Detection> detections = postprocess(
             out_ptrs, out_shapes,
+            input_height, input_width,
             std::make_tuple(preprocessed, scale, pad),
             SCORE_THRESHOLD,
-            NMS_THRESHOLD);
+            NMS_THRESHOLD,
+            REG_MAX);
 
         std::cout << "Detections: " << detections.size() << std::endl;
 

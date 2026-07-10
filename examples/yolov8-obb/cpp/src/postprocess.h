@@ -22,8 +22,9 @@
 #include <opencv2/opencv.hpp>
 #include "nnsdk2.h"
 
-struct Detection {
-    std::vector<cv::Point2f> corners; // 4 corners of the Oriented Bounding Box
+struct Detection
+{
+    std::vector<cv::Point2f> corners;         // 4 corners of the Oriented Bounding Box
     float aabb_x1, aabb_y1, aabb_x2, aabb_y2; // Axis-Aligned box for NMS
     float score;
     int class_id;
@@ -34,16 +35,16 @@ std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
 std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
 
 // Quantize
-cv::Mat quantize_input(const cv::Mat& float_img, float scale, int32_t zero_point);
+cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point);
 
 // Postprocess handles the 3 outputs for OBB (Bbox, Score, Angle)
-std::vector<Detection> postprocess(float* bbox_data, const std::vector<int>& bbox_shape,
-                                   float* score_data, const std::vector<int>& score_shape,
-                                   float* angle_data, const std::vector<int>& angle_shape,
+std::vector<Detection> postprocess(float *bbox_data, const std::vector<int> &bbox_shape,
+                                   float *score_data, const std::vector<int> &score_shape,
+                                   float *angle_data, const std::vector<int> &angle_shape,
                                    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
                                    float conf_thresh, float iou_threshold);
 
 // Drawing detections with Oriented Bounding Boxes
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections);
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections);
 
 #endif // POSTPROCESS_H

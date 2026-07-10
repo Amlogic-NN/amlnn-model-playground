@@ -30,7 +30,6 @@ const std::vector<std::string> DOTA_CLASSES = {
     "soccer ball field", "swimming pool"
 };
 
-
 // Helper function to extract meaningful dimensions (ignores batch dim 1)
 std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
 {

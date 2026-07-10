@@ -25,16 +25,24 @@ from amlnn.api import AMLNN
 MEAN = np.array([0, 0, 0], dtype=np.float32)
 STD  = np.array([255, 255, 255], dtype=np.float32)
 
-def load_class_names(path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            names = [line.strip() for line in f.readlines() if line.strip()]
-        return {idx: name for idx, name in enumerate(names)}
-    except Exception as e:
-        print(f"Warning: Could not load class names from '{path}'. Fallback to generic IDs.")
-        return {}
-
-class_names = load_class_names("../input/coco_80_names.txt")
+class_names = {
+    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane',
+    5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light',
+    10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird',
+    15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow',
+    20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack',
+    25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee',
+    30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat',
+    35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle',
+    40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon',
+    45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange',
+    50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'doughnut',
+    55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed',
+    60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse',
+    65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven',
+    70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock',
+    75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
+}
 
 def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
     shape = img.shape[:2]
@@ -228,7 +236,7 @@ def draw_detections(img, detections, save_path):
     print(f"    Result saved to: {save_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Yolov7 Demo")
+    parser = argparse.ArgumentParser(description="Yolov6 Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     args = parser.parse_args()

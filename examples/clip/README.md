@@ -89,7 +89,7 @@ Note: We recommend using the same quantization method for both models since we a
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn-1.0.0-cp310-cp310-linux_aarch64.whl transformers
+pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl transformers
 ```
 
 **Run on device:**

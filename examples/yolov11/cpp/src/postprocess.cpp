@@ -34,6 +34,17 @@
         fprintf(stderr, "\n");        \
     } while (0)
 
+const std::vector<std::string> COCO_CLASSES = {
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "doughnut", "cake", "chair", "couch",
+    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush"};
+
 std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr)
 {
     std::vector<int> shape;
@@ -45,32 +56,6 @@ std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr)
         }
     }
     return shape;
-}
-
-std::vector<std::string> load_labels(const std::string &path)
-{
-    std::vector<std::string> labels;
-    std::ifstream file(path);
-
-    if (!file.is_open())
-    {
-        std::cerr << "Warning: Could not open labels file at " << path << std::endl;
-        return labels;
-    }
-
-    std::string line;
-    while (std::getline(file, line))
-    {
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-        if (!line.empty())
-        {
-            labels.push_back(line);
-        }
-    }
-    return labels;
 }
 
 static float compute_iou(const Detection &det1, const Detection &det2)
@@ -339,7 +324,7 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
     return nms_by_class(detections_orig, iou_threshold);
 }
 
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections, const std::vector<std::string> &class_names)
+cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections)
 {
     cv::Mat drawn_image = image.clone();
 
@@ -348,9 +333,9 @@ cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections,
         int class_id = det.class_id;
 
         std::string class_name;
-        if (class_id >= 0 && class_id < class_names.size())
+        if (class_id >= 0 && class_id < COCO_CLASSES.size())
         {
-            class_name = class_names[class_id];
+            class_name = COCO_CLASSES[class_id];
         }
         else
         {

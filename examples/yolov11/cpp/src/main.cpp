@@ -36,29 +36,16 @@ int main(int argc, char **argv)
 {
     if (argc < 3)
     {
-        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> [labels.txt (optional)]\n";
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir>\n";
         return 0;
     }
 
     std::string model_path = argv[1];
-    std::string labels_path = "../input/coco_80_names.txt";
-
-    if (argc >= 4)
-    {
-        labels_path = argv[3];
-    }
 
     std::cout << "YOLOv11 Demo" << std::endl;
 
-    if (!fs::exists(labels_path))
-    {
-        std::cerr << "Warning: Labels file not found at path: " << labels_path << ". Using fallback IDs." << std::endl;
-    }
-
     std::string output_dir = "yolov11_result";
     fs::create_directory(output_dir);
-
-    std::vector<std::string> labels = load_labels(labels_path);
 
     // 1. Initialize Network
     void *context = nullptr;
@@ -145,7 +132,7 @@ int main(int argc, char **argv)
         std::cout << "Detections after NMS: " << detections.size() << std::endl;
 
         // 6. Draw and Save
-        cv::Mat result_img = draw_detections(img, detections, labels);
+        cv::Mat result_img = draw_detections(img, detections);
         std::string out_path = output_dir + "/" + it.path().filename().string();
         cv::imwrite(out_path, result_img);
         std::cout << "Result saved to: " << out_path << std::endl;

@@ -50,7 +50,7 @@ Usage:   python export_adla.py --onnx ../model/model.onnx \
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**
@@ -64,6 +64,8 @@ Argument Descriptions:
 | ----------------- | ------------------------------------------------------------ |
 | `--model-path` | path to `.adla` model  |
 |` --image-dir`   | Directory containing test images |
+| `--conf` | (Optional) Sets the confidence threshold, defaults to 0.25 |
+|` --nms`   | (Optional) Sets the IOU threshold, defaults to 0.4 |
 
 The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
 

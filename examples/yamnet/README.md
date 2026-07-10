@@ -77,7 +77,7 @@ examples/yamnet/model/yamnet_w8a16.adla
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn-1.0.0-cp310-cp310-linux_aarch64.whl librosa
+pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl librosa
 ```
 
 **Run on device:**
