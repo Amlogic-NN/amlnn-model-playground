@@ -99,8 +99,8 @@ def main():
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}"
     )
 
-    # NOTE: You will have add the vision-dataset-path argument IF YOU ARE QUANTIZING TO INT8/UINT8/INT16
-    # amlnn.compile(args.vision_dataset_path)
+    # NOTE: You will have add the text-dataset-path argument IF YOU ARE QUANTIZING TO INT8/UINT8/INT16
+    # amlnn.compile(args.text_dataset_path)
 
     amlnn.compile()
 

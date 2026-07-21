@@ -57,7 +57,7 @@ def main():
 
     amlnn = AMLNN()
 
-    # NOTE: These node names may be different depending on your model
+    # NOTE: These node names may vary depending on your model. Please ensure the output order remains the same.
     amlnn.load_onnx(model=args.onnx, outputs=[
         "/model.22/Concat_1_output_0", # <-- Stride 8 (1x77x60x80 grid)
         "/model.22/Concat_2_output_0", # <-- Stride 16 (1x77x30x40 grid)

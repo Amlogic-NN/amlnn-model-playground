@@ -15,32 +15,33 @@
 #
 
 import torch
-import torchvision
+import onnx
 from torchvision.models import mobilenet_v2, MobileNet_V2_Weights
 
-# 1. Load pretrained MobileNetV2 (ImageNet weights)
-model = mobilenet_v2(weights=MobileNet_V2_Weights.DEFAULT)
+weights = MobileNet_V2_Weights.DEFAULT
+model = mobilenet_v2(weights=weights)
 model.eval()
 
-# 2. Create dummy input (batch_size=1, 3x224x224 image)
 dummy_input = torch.randn(1, 3, 224, 224)
-
-# 3. Export to ONNX
 onnx_path = "mobilenet_v2.onnx"
 
-torch.onnx.export(
-    model,
-    dummy_input,
-    onnx_path,
-    export_params=True,
-    opset_version=13,
-    do_constant_folding=True,
-    input_names=["input"],
-    output_names=["output"],
-    dynamic_axes={
-        "input": {0: "batch_size"},
-        "output": {0: "batch_size"}
-    }
-)
+with torch.no_grad():
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_path,
+        export_params=True,
+        opset_version=13,
+        do_constant_folding=True,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes=None,
+        external_data=False
+    )
+
+onnx_model = onnx.load(onnx_path)
+onnx.checker.check_model(onnx_model)
 
 print(f"Exported MobileNetV2 ONNX model to {onnx_path}")
+print("Input shape: [1, 3, 224, 224]")
+print("Output shape: [1, 1000]")

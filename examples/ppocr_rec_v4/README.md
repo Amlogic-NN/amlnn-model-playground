@@ -46,7 +46,7 @@ Run the ADLA export script from `examples/ppocr_rec_v4/py`:
 cd examples/ppocr_rec_v4/py
 python export_adla.py \
   --onnx ../model/ppocr_rec_static.onnx \
-  --target-platform 005 \
+  --target-platform 007 \
   --adla ../model
 ```
 

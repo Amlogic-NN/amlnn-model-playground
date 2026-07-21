@@ -41,8 +41,8 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py --onnx ../model/model.onnx \
-                                 --dataset-path ../../../resource/COCO_subset.txt \
-                                 --target-platform 005 \
+                                 --dataset-path ../../../resource/detection_dataset.txt \
+                                 --target-platform 007 \
                                  --adla ../model
 ```
 
@@ -58,24 +58,28 @@ Usage:   python export_adla.py --onnx ../model/model.onnx \
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+- Required packages: `amlnn`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**
 ```bash
 python yoloe_inference.py \
     --model-path ../model/model.adla \
-    --image-dir ../input
+    --image-dir ../input \
+    --labels ../input/labels.txt
 ```
 Argument Descriptions:
 | Argument         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
+| `--model-path` | Path to `.adla` model  |
 |` --image-dir`   | Directory containing test images |
+|` --labels`   | (Optional) Path to `labels.txt`, defaults to `../input/labels.txt` |
+| `--conf` | (Optional) Confidence Threshold, default to 0.7  |
+|` --nms`   | (Optional) Sets the IOU threshold, defaults to 0.05 |
 
 The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
 
@@ -125,8 +129,8 @@ cd /data/local/tmp
 chmod +x yoloe_demo
 export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
-# Usage: ./yoloe_demo <model_path> <image_dir>
-./yoloe_demo yoloe_w8a8.adla input/
+# Usage: ./yoloe_demo <model_path> <image_dir> <labels.txt>
+./yoloe_demo yoloe_w8a8.adla input/ input/labels.txt
 ```
 
 **Note:** Replace `yoloe_w8a8.adla` with your actual model file path.
@@ -214,7 +218,7 @@ adb shell
 cd /data/local/tmp
 chmod +x yoloe_demo
 
-# Usage: ./yoloe_demo <model_path> <image_dir> [labels.txt]
+# Usage: ./yoloe_demo <model_path> <image_dir> <labels.txt>
 ./yoloe_demo yoloe_w8a8.adla input/ input/labels.txt
 ```
 **Note:** Replace `yoloe_w8a8.adla` with your actual model file name.

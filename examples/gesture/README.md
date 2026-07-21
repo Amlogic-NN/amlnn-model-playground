@@ -58,8 +58,8 @@ Run the ADLA export script from `examples/gesture/py`:
 cd examples/gesture/py
 python export_adla.py \
   --onnx ../model/gesture.onnx \
-  --dataset-path ../../../resource/COCO_subset.txt \
-  --target-platform 005 \
+  --dataset-path ../../../resource/detection_dataset.txt \
+  --target-platform 007 \
   --adla ../model
 ```
 

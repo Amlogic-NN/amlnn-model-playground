@@ -16,39 +16,30 @@
 
 #pragma once
 
-#include <opencv2/opencv.hpp>
-#include <vector>
-#include <tuple>
+#include <array>
 #include <string>
+#include <tuple>
+#include <vector>
+#include <opencv2/opencv.hpp>
 #include "nnsdk2.h"
 
-#include "anchors.h"
+constexpr int NUM_COORDS = 12;
 
-#define NUM_COORDS 12
-
-// BlazePoseDetection result structure
-struct BlazePoseDetection
+struct Detection
 {
-    float coords[NUM_COORDS + 1]; // 12 coords + 1 score
+    std::array<float, NUM_COORDS> coords{};
+    float score = 0.0f;
 };
 
-// COCO class names (80 classes)
-extern const char *COCO_CLASSES[80];
-
-// Helper function to extract meaningful dimensions (ignores batch dim 1)
-std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
-
-// Preprocess image with letterbox resizing
+std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr);
 std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
-
-// Quantize float32 image to int8 for model input
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point);
-
-// Postprocess blazepose_detect outputs with DFL decoding
-std::vector<BlazePoseDetection> postprocess(float *raw_boxes, float *raw_scores,
-                                            std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-                                            float conf_threshold, float iou_threshold);
-
-// Draw detections on image
-cv::Mat draw_detections(cv::Mat image, const std::vector<BlazePoseDetection> &detections);
-
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+std::vector<Detection> postprocess(
+    const std::vector<float *> &out_ptrs,
+    const std::vector<std::vector<int>> &out_shapes,
+    int input_h, int input_w,
+    int original_h, int original_w,
+    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
+    float conf_threshold, float iou_threshold);
+bool save_detections(const std::string &path, const std::vector<Detection> &detections);
+cv::Mat draw_detections(const cv::Mat &image, const std::vector<Detection> &detections);

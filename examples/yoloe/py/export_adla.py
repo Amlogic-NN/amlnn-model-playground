@@ -57,16 +57,16 @@ def main():
 
     amlnn = AMLNN()
 
-    # NOTE: These node names may be different depending on your model
+    # NOTE: These node names may vary depending on your model. Please ensure the output order remains the same.
     amlnn.load_onnx(
         model=args.onnx, 
         outputs=[
-            "/model.22/Reshape_3_output_0",          # <-- 1x64x6400 (Stride 8 dfl)
-            "/model.22/lrpc.0/Transpose_1_output_0", # <-- 1x4585x6400 (Stride 8 cls)
-            "/model.22/Reshape_4_output_0",          # <-- 1x64x1600 (Stride 16 dfl)
-            "/model.22/lrpc.1/Transpose_1_output_0", # <-- 1x4585x1600 (Stride 16 cls)
-            "/model.22/Reshape_5_output_0",          # <-- 1x64x400 (Stride 32 dfl)
-            "/model.22/lrpc.2/Reshape_output_0"      # <-- 1x4585x400 (Stride 32 cls)
+            "/model.22/Reshape_2_output_0",           # <-- 1x64x400 (Stride 32 dfl)
+            "/model.22/lrpc.2/Reshape_output_0",      # <-- 1x4585x400 (Stride 32 cls)
+            "/model.22/Reshape_1_output_0",           # <-- 1x64x1600 (Stride 16 dfl)
+            "/model.22/lrpc.1/Transpose_1_output_0",  # <-- 1x4585x1600 (Stride 16 cls)
+            "/model.22/Reshape_output_0",             # <-- 1x64x6400 (Stride 8 dfl)
+            "/model.22/lrpc.0/Transpose_1_output_0"   # <-- 1x4585x6400 (Stride 8 cls)
         ]
     )
 
@@ -76,6 +76,7 @@ def main():
         quantized_dtype="w8a8",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
+
     amlnn.compile(dataset=args.dataset_path)
     amlnn.export_adla()
 

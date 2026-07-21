@@ -40,7 +40,7 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py --onnx ../model/model.onnx \
-                               --target-platform 005 \
+                               --target-platform 007 \
                                --adla ../model
 ```
 

@@ -66,6 +66,7 @@ def main():
             normalization_mean=[MEAN.tolist()],
             normalization_std=[STD.tolist()],
             quantized_dtype="w8a8",
+            activation_quant_algo="omse",
             target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
         )
         amlnn.compile(dataset=args.dataset_path)

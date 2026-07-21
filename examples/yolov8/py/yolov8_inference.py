@@ -73,29 +73,30 @@ def preprocess(img_path, new_shape, s, zp, tensor_type):
 
     # 2. BGR to RGB
     rgb_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
+    rgb_float = rgb_img.astype(np.float32)
 
-    # 3. Fused Normalization & Quantization
-    if tensor_type in (2, 3):  # Quantized Int8 (2) or UInt8 (3)
+    # 3. Fused Normalization & Quantization if needed
+    if tensor_type == 0: # FP32 & FP16
+        input_tensor = (rgb_float / 255.0) # Only normalize
+    elif tensor_type in (2, 3, 4):
         inv_scale = np.float32(1.0 / (255.0 * s))
-        raw_val = np.round((rgb_img * inv_scale) + zp)
+        raw_val = np.round((rgb_float * inv_scale) + zp)
 
-        if tensor_type == 2:
+        if tensor_type == 2:    # Int8
             input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
-        else:
+        elif tensor_type == 3:  # Uint8
             input_tensor = np.clip(raw_val, 0, 255).astype(np.uint8)
+        else:                   # Int16
+            input_tensor = np.clip(raw_val, -32768, 32767).astype(np.int16)
     else:
-        # If model is Float32, just normalize
-        input_tensor = (rgb_img * np.float32(1.0 / 255.0)).astype(np.float32)
+        raise ValueError(f"Does not support tensor type: {tensor_type}")
 
     # Add batch dimension
     input_tensor = np.expand_dims(input_tensor, axis=0)
 
     return input_tensor, original_img, scale, pad
 
-import numpy as np
-import cv2
-
-def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold, data_format='NHWC', regmax=16):
+def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold, regmax=16):
     # input_shape is a tuple: (input_height, input_width)
     input_h, input_w = input_shape
 
@@ -107,20 +108,14 @@ def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold,
     safe_thresh = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
     inv_thresh = np.log(safe_thresh / (1.0 - safe_thresh))
     regression_range = np.arange(regmax, dtype=np.float32)
-    
-    reg_channels = 4 * regmax 
+
+    reg_channels = 4 * regmax
 
     strides = [32, 16, 8]
     for idx, output in enumerate(outputs):
-        # Dynamically fetch feature map shape
-        if data_format == 'NCHW':
-            batch_size, channels, height, width = output.shape
-            output_reshaped = output.transpose(0, 2, 3, 1).reshape(-1, channels)
-        elif data_format == 'NHWC':
-            batch_size, height, width, channels = output.shape
-            output_reshaped = output.reshape(-1, channels)
-        else:
-            raise ValueError(f"Unsupported data format: {data_format}.")
+        # output shape is [batch_size, height, width, channels]
+        batch_size, height, width, channels = output.shape
+        output_reshaped = output.reshape(-1, channels)
 
         # 1. Stride calculation
         stride = strides[idx]
@@ -208,7 +203,7 @@ def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold,
     if len(nms_indices) > 0:
         nms_indices = nms_indices.flatten()
         for idx in nms_indices:
-            bx1, by1, bx2, by2 = valid_boxes[idx] 
+            bx1, by1, bx2, by2 = valid_boxes[idx]
             c_id = valid_class_ids[idx]
             detections.append({
                 'bbox': [float(bx1), float(by1), float(bx2), float(by2)],
@@ -253,28 +248,28 @@ def draw_detections(img, detections, save_path=None, in_place=False):
 
         # Draw background rectangle for label
         cv2.rectangle(
-            result_img, 
-            (x1, y1_label - label_h - 10), 
-            (x1 + label_w, y1_label), 
-            color, 
+            result_img,
+            (x1, y1_label - label_h - 10),
+            (x1 + label_w, y1_label),
+            color,
             thickness=cv2.FILLED
         )
 
         # Draw text
         cv2.putText(
-            result_img, 
-            label, 
-            (x1, y1_label - 5), 
-            cv2.FONT_HERSHEY_SIMPLEX, 
-            0.6, 
-            text_color, 
+            result_img,
+            label,
+            (x1, y1_label - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            text_color,
             thickness=1,
             lineType=cv2.LINE_AA
         )
 
     if save_path:
         cv2.imwrite(save_path, result_img)
-        
+
     return result_img
 
 

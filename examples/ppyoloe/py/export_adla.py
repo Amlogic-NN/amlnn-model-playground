@@ -57,16 +57,16 @@ def main():
 
     amlnn = AMLNN()
 
-    # NOTE: These node names may be different depending on your model
+    # NOTE: These node names may vary depending on your model. Please ensure the output order remains the same.
     amlnn.load_onnx(
         model=args.onnx, 
         outputs=[
-            "p2o.Transpose.10",          # <-- 1x6400x17x4 (Stride 8 dfl)
+            "p2o.Transpose.10",          # <-- 1x4x6400x17 (Stride 8 dfl)
             "conv2d_81.tmp_0",           # <-- 1x80x80x80  (Stride 8 cls)
-            "p2o.Transpose.6",           # <-- 1x1600x17x4 (Stride 16 dfl)
-            "conv2d_74.tmp_0",           # <-- 1x40x40x80  (Stride 16 cls)
-            "p2o.Transpose.2",           # <-- 1x400x17x4  (Stride 32 dfl)
-            "conv2d_67.tmp_0"            # <-- 1x20x20x80  (Stride 32 cls)
+            "p2o.Transpose.6",           # <-- 1x4x1600x17 (Stride 16 dfl)
+            "conv2d_74.tmp_0",           # <-- 1x80x40x40  (Stride 16 cls)
+            "p2o.Transpose.2",           # <-- 1x4x400x17  (Stride 32 dfl)
+            "conv2d_67.tmp_0"            # <-- 1x80x20x20  (Stride 32 cls)
         ]
     )
 

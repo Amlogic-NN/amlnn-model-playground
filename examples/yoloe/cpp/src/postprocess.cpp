@@ -133,10 +133,7 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
 {
     cv::Mat img_rgb;
     if (img.empty())
-    {
-        LOGE("Preprocess received empty image");
         return {};
-    }
 
     if (img.channels() == 4)
         cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
@@ -172,33 +169,67 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     return std::make_tuple(img_float, scale, std::make_tuple(pad_left, pad_top));
 }
 
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point)
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
 {
+    std::vector<uint8_t> tensor_data;
+
     if (float_img.empty() || float_img.type() != CV_32FC3)
     {
-        LOGE("quantize_input: Invalid input image (must be CV_32FC3)");
-        return cv::Mat();
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
     }
-
-    cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8SC3);
-    const float *src_ptr = (const float *)float_img.data;
-    int8_t *dst_ptr = (int8_t *)quantized_img.data;
 
     int total_elements = float_img.total() * float_img.channels();
-    for (int i = 0; i < total_elements; ++i)
+    const float *src_ptr = float_img.ptr<float>();
+
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
     {
-        float val = std::round(src_ptr[i] / scale) + zero_point;
-        dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
+        }
+    }
+    else
+    {
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
     }
 
-    return quantized_img;
+    return tensor_data;
 }
 
 std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
                                    const std::vector<std::vector<int>> &out_shapes,
+                                   int input_h, int input_w,
                                    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-                                   float conf_thresh, float iou_threshold,
-                                   int model_input_size)
+                                   float conf_thresh, float iou_threshold, int reg_max)
 {
     float scale = std::get<1>(input_tuple);
     int pad_left = std::get<0>(std::get<2>(input_tuple));
@@ -206,62 +237,29 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
 
     std::vector<Detection> detections_orig;
 
-    // Inverse sigmoid logic
     float safe_thresh = std::max(1e-5f, std::min(conf_thresh, 1.0f - 1e-5f));
     float inv_thresh = std::log(safe_thresh / (1.0f - safe_thresh));
 
-    auto get_layout = [](const std::vector<int> &shape, int expected_cells)
-    {
-        int channels = 0;
-        bool is_nchw = true;
-        if (shape.size() >= 3)
-        {
-            if (shape[1] * shape[2] == expected_cells)
-            {
-                channels = shape[0];
-                is_nchw = true;
-            }
-            else
-            {
-                channels = shape.back();
-                is_nchw = false;
-            }
-        }
-        else if (shape.size() == 2)
-        {
-            if (shape[1] == expected_cells)
-            {
-                channels = shape[0];
-                is_nchw = true;
-            }
-            else
-            {
-                channels = shape[1];
-                is_nchw = false;
-            }
-        }
-        return std::make_pair(channels, is_nchw);
-    };
+    int strides[3] = {32, 16, 8};
+    int dfl_channels = reg_max * 4;
 
-    int strides[3] = {8, 16, 32};
-
-    // Paired exactly as: (0,1), (2,3), (4,5)
     for (int s = 0; s < 3; ++s)
     {
-        int cls_idx = s * 2;
-        int dfl_idx = s * 2 + 1;
+        int dfl_idx = s * 2;
+        int cls_idx = s * 2 + 1;
 
         int stride = strides[s];
-        int grid_size = model_input_size / stride;
-        int num_cells = grid_size * grid_size;
+        int grid_w = input_w / stride;
+        int grid_h = input_h / stride;
+        int num_cells = grid_w * grid_h;
 
-        float *cls_data = out_ptrs[cls_idx];
         float *dfl_data = out_ptrs[dfl_idx];
+        float *cls_data = out_ptrs[cls_idx];
 
-        auto [num_classes, cls_is_nchw] = get_layout(out_shapes[cls_idx], num_cells);
-        auto [dfl_channels, dfl_is_nchw] = get_layout(out_shapes[dfl_idx], num_cells);
-
-        int reg_max = dfl_channels / 4;
+        int num_classes = 1;
+        for (int dim : out_shapes[cls_idx])
+            num_classes *= dim;
+        num_classes /= num_cells;
 
         for (int i = 0; i < num_cells; ++i)
         {
@@ -270,7 +268,7 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
 
             for (int c = 0; c < num_classes; ++c)
             {
-                int idx = cls_is_nchw ? (c * num_cells + i) : (i * num_classes + c);
+                int idx = (c * num_cells) + i;
                 float val = cls_data[idx];
                 if (val > max_raw_score)
                 {
@@ -279,12 +277,9 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
                 }
             }
 
-            // Early stopping check against INVERSE threshold
             if (max_raw_score > inv_thresh)
             {
-                // Recover true confidence via Sigmoid
                 float final_score = 1.0f / (1.0f + std::exp(-max_raw_score));
-
                 float dfl_vals[4] = {0.0f};
 
                 for (int d = 0; d < 4; ++d)
@@ -295,7 +290,7 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
                     for (int r = 0; r < reg_max; ++r)
                     {
                         int c_idx = base_dfl_idx + r;
-                        int idx = dfl_is_nchw ? (c_idx * num_cells + i) : (i * dfl_channels + c_idx);
+                        int idx = (c_idx * num_cells) + i;
                         max_dfl = std::max(max_dfl, dfl_data[idx]);
                     }
 
@@ -303,16 +298,16 @@ std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
                     for (int r = 0; r < reg_max; ++r)
                     {
                         int c_idx = base_dfl_idx + r;
-                        int idx = dfl_is_nchw ? (c_idx * num_cells + i) : (i * dfl_channels + c_idx);
+                        int idx = (c_idx * num_cells) + i;
                         float exp_val = std::exp(dfl_data[idx] - max_dfl);
                         sum_exp += exp_val;
-                        dot_prod += exp_val * r;
+                        dot_prod += exp_val * static_cast<float>(r);
                     }
                     dfl_vals[d] = dot_prod / sum_exp;
                 }
 
-                int gy = i / grid_size;
-                int gx = i % grid_size;
+                int gy = i / grid_w;
+                int gx = i % grid_w;
 
                 float cx = (gx + 0.5f) * stride;
                 float cy = (gy + 0.5f) * stride;

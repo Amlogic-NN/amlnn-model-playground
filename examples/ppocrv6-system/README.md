@@ -96,8 +96,7 @@ If you prefer Linux, use the same CMake project under `examples/ppocrv6-system/c
 
 ## 4. Result
 
-The demo saves the visualized OCR result as `ocr_result_<input_image_filename>` in the current working directory. 
-![ocr_result](./ocr_result_test.jpg)
+The demo saves the visualized OCR result as `ocr_result_<input_image_filename>` in the current working directory.
 
 If running on device, pull it with:
 

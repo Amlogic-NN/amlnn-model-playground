@@ -24,8 +24,8 @@ import numpy as np
 from amlnn.api import AMLNN
 
 # Normalization constants used for quantization config
-MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32)
-STD  = np.array([58.395, 57.12, 57.375], dtype=np.float32)
+MEAN = np.array([0, 0, 0], dtype=np.float32)
+STD  = np.array([255, 255, 255], dtype=np.float32)
 
 def snapshot_adla_files(search_dir):
     return {path: path.stat().st_mtime for path in search_dir.rglob("*.adla")}
@@ -42,7 +42,6 @@ def find_updated_adla_files(search_dir, known_files):
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
-
 
 def main():
     parser = argparse.ArgumentParser(description="Export ONNX to ADLA")

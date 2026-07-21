@@ -54,7 +54,7 @@ The model pre-processing and post-processing code in this example was partially 
 
 Text Onnx link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/text_model.onnx
 
-Vision Onnx link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx
+Image Onnx link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx
 
 Tokenizer link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/clip_tokenizer.zip
 
@@ -65,21 +65,21 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py   --text-onnx ../model/text_model.onnx \
-                                 --vision-onnx ../model/vision_model.onnx \
-                                 --target-platform 005 \
+                                 --image-onnx ../model/vision_model.onnx \
+                                 --target-platform 007 \
                                  --adla ../model
 ```
 
 | Parameter         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
-| `--text-onnx`        | Quantized `.onnx` encoder path                                              |
-| `--vision-onnx`      | Quantized `.onnx` decoder path    |
+| `--text-onnx`        | Quantized `.onnx` text encoder path                                              |
+| `--image-onnx`      | Quantized `.onnx` image encoder path    |
 | `--text-dataset-path`      | Path to a `.txt` containing all the paths to the quantization images for the text model (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
-| `--vision-dataset-path`      | Path to a `.txt` containing all the paths to the quantization images for the vision model (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
+| `--image-dataset-path`      | Path to a `.txt` containing all the paths to the quantization images for the image model (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
 | `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
 | `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
 
-Note: We recommend using the same quantization method for both models since we are comparing the embedding output from both models.
+### Note: We recommend using the same quantization method for both models since we are comparing the embedding output from both models.
 
 ## 3. Run Python Demo
 
@@ -96,18 +96,19 @@ pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch
 ```bash
 python clip_inference.py \
     --text-model-path ../model/text_model_w16a16.adla \
-    --vision-model-path ../model/vision_model_w8a8.adla \
-    --tokenizer-dir ../tokenizer/
+    --image-model-path ../model/vision_model_w8a8.adla \
+    --tokenizer-dir ../tokenizer/ \
+    --image-dir ../input \
+    --text "a red bus" apple car person
 ```
 Argument Descriptions:
 | Argument         | Description                                                  |
 | ---------------- | ------------------------------------------------------------ |
 | `--text-model`     | Path to text encoder .adla model                  |
-| `--vision-model`   | Path to vision encoder .adla model                |
+| `--image-model`   | Path to image encoder .adla model                |
 | `--tokenizer-dir`  | Path to CLIPTokenizer directory                   |
-| `--image-path`     | (Optional) Path to input image (.jpg, .png) - will prompt if not provided |
-| `--texts`          | (Optional) List of text descriptions to compare (space-separated)       |
-| `--max-len`        | (Optional) Maximum token sequence length, default is 64                 |
+| `--image-dir`      | Directory containing test images                  |
+| `--texts`          | List of text descriptions. Separate descriptions with spaces and wrap multi-word descriptions in quotes  |
 | `--logit-scale`    | (Optional) Logit scale factor, default is 100.0                         |
 
 The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
@@ -159,8 +160,8 @@ cd /data/local/tmp
 chmod +x clip_demo
 export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
-# Usage: ./clip_demo <vision_model> <text_model> <tokenizer_dir> <image_path>
-./clip_demo vision_model_w8a8.adla text_model_w16a16.adla ../tokenizer/ input/test.jpg
+# Usage: ./clip_demo <vision_model> <text_model> <tokenizer_dir> <image_dir> [texts ...]
+./clip_demo vision_model_w8a8.adla text_model_w16a16.adla ../tokenizer/ ./input "a red bus" apple car person
 ```
 
 **Note:** Replace `.adla` with your actual model file path.
@@ -248,8 +249,8 @@ adb shell
 cd /data/local/tmp
 chmod +x clip_demo
 
-# Usage: ./clip_demo <vision_model> <text_model> <tokenizer_dir> <image_path>
-./clip_demo vision_model_w8a8.adla text_model_w16a16.adla ../tokenizer/ input/test.jpg
+# Usage: ./clip_demo <vision_model> <text_model> <tokenizer_dir> <image_dir> [texts ...]
+./clip_demo vision_model_w8a8.adla text_model_w16a16.adla ../tokenizer/ ./input "a red bus" apple car person
 ```
 **Note:** Replace `.adla` with your actual model file name.
 
@@ -295,7 +296,7 @@ logit_scale: 100.000000
 [Info] Image Path (or 'exit' to quit):
 exit
 [Info] Exiting...
-Free vision model memory.
+Free image model memory.
 Free text model memory.
 [Info] Done.
 ```

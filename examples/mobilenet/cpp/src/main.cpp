@@ -35,20 +35,14 @@ namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
 {
-    if (argc < 3)
+    if (argc < 4)
     {
-        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> [labels.txt (optional)]\n";
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> <labels.txt>\n";
         return 0;
     }
 
     std::string model_path = argv[1];
-
-    std::string labels_path = "../input/labels.txt";
-
-    if (argc >= 4)
-    {
-        labels_path = argv[3];
-    }
+    std::string labels_path = argv[3];
 
     std::cout << "MobileNetV2 Demo" << std::endl;
 

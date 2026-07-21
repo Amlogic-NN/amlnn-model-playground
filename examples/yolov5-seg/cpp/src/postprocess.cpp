@@ -13,110 +13,123 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include "postprocess.h"
-#include <iostream>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <unordered_map>
 
-#define LOGI(...)            \
-    do                       \
-    {                        \
-        printf(__VA_ARGS__); \
-        printf("\n");        \
-    } while (0)
-#define LOGE(...)                     \
-    do                                \
-    {                                 \
-        fprintf(stderr, __VA_ARGS__); \
-        fprintf(stderr, "\n");        \
-    } while (0)
-
-const std::vector<std::string> COCO_CLASSES = {
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "doughnut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    "hair drier", "toothbrush"};
-
+const int STRIDES[3] = {8, 16, 32};
 const float ANCHORS[3][3][2] = {
-    {{10, 13}, {16, 30}, {33, 23}},     // Stride 8
-    {{30, 61}, {62, 45}, {59, 119}},    // Stride 16
-    {{116, 90}, {156, 198}, {373, 326}} // Stride 32
-};
+    {{10, 13}, {16, 30}, {33, 23}},
+    {{30, 61}, {62, 45}, {59, 119}},
+    {{116, 90}, {156, 198}, {373, 326}}};
+
+const char *COCO_CLASSES[NUM_CLASSES] = {
+    "person", "bicycle", "car", "motorcycle", "airplane",
+    "bus", "train", "truck", "boat", "traffic light",
+    "fire hydrant", "stop sign", "parking meter", "bench", "bird",
+    "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack",
+    "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat",
+    "baseball glove", "skateboard", "surfboard", "tennis racket", "bottle",
+    "wine glass", "cup", "fork", "knife", "spoon",
+    "bowl", "banana", "apple", "sandwich", "orange",
+    "broccoli", "carrot", "hot dog", "pizza", "doughnut",
+    "cake", "chair", "couch", "potted plant", "bed",
+    "dining table", "toilet", "tv", "laptop", "mouse",
+    "remote", "keyboard", "cell phone", "microwave", "oven",
+    "toaster", "sink", "refrigerator", "book", "clock",
+    "vase", "scissors", "teddy bear", "hair drier", "toothbrush"};
+
+static float sigmoid(float value)
+{
+    value = std::max(-80.0f, std::min(80.0f, value));
+    return 1.0f / (1.0f + std::exp(-value));
+}
+
+static cv::Scalar get_color(int class_id)
+{
+    float hue = std::fmod(class_id * 137.508f, 360.0f);
+    cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(hue / 2.0f, 204, 230));
+    cv::Mat bgr;
+    cv::cvtColor(hsv, bgr, cv::COLOR_HSV2BGR);
+    cv::Vec3b pixel = bgr.at<cv::Vec3b>(0, 0);
+    return cv::Scalar(pixel[0], pixel[1], pixel[2]);
+}
 
 static float compute_iou(const Detection &det1, const Detection &det2)
 {
-    float xx1 = std::max(det1.x1, det2.x1);
-    float yy1 = std::max(det1.y1, det2.y1);
-    float xx2 = std::min(det1.x2, det2.x2);
-    float yy2 = std::min(det1.y2, det2.y2);
-
-    float w = std::max(0.0f, xx2 - xx1);
-    float h = std::max(0.0f, yy2 - yy1);
-    float inter = w * h;
-
-    float area1 = (det1.x2 - det1.x1) * (det1.y2 - det1.y1);
-    float area2 = (det2.x2 - det2.x1) * (det2.y2 - det2.y1);
-
-    return inter / (area1 + area2 - inter);
+    float x1 = std::max(det1.x1, det2.x1);
+    float y1 = std::max(det1.y1, det2.y1);
+    float x2 = std::min(det1.x2, det2.x2);
+    float y2 = std::min(det1.y2, det2.y2);
+    float intersection = std::max(0.0f, x2 - x1) * std::max(0.0f, y2 - y1);
+    float area1 = std::max(0.0f, det1.x2 - det1.x1) * std::max(0.0f, det1.y2 - det1.y1);
+    float area2 = std::max(0.0f, det2.x2 - det2.x1) * std::max(0.0f, det2.y2 - det2.y1);
+    float union_area = area1 + area2 - intersection;
+    return union_area > 0.0f ? intersection / union_area : 0.0f;
 }
 
-static std::vector<Detection> nms(std::vector<Detection> &detections, float iou_threshold)
+static std::vector<Detection> nms_by_class(
+    const std::vector<Detection> &detections, float iou_threshold)
 {
-    if (detections.empty())
-        return {};
-
-    std::sort(detections.begin(), detections.end(), [](const Detection &a, const Detection &b)
-              { return a.score > b.score; });
-
     std::vector<Detection> final_detections;
-    std::vector<bool> removed(detections.size(), false);
+    std::unordered_map<int, std::vector<Detection>> class_detections;
+    for (const auto &detection : detections)
+        class_detections[detection.class_id].push_back(detection);
 
-    for (size_t i = 0; i < detections.size(); ++i)
+    for (auto &[class_id, class_dets] : class_detections)
     {
-        if (removed[i])
-            continue;
-        final_detections.push_back(detections[i]);
+        std::sort(
+            class_dets.begin(), class_dets.end(),
+            [](const Detection &a, const Detection &b)
+            { return a.score > b.score; });
+        std::vector<bool> removed(class_dets.size(), false);
 
-        for (size_t j = i + 1; j < detections.size(); ++j)
+        for (size_t i = 0; i < class_dets.size(); ++i)
         {
-            if (removed[j])
+            if (removed[i])
                 continue;
-            if (compute_iou(detections[i], detections[j]) > iou_threshold)
+
+            final_detections.push_back(class_dets[i]);
+            for (size_t j = i + 1; j < class_dets.size(); ++j)
             {
-                removed[j] = true;
+                if (!removed[j] && compute_iou(class_dets[i], class_dets[j]) > iou_threshold)
+                    removed[j] = true;
             }
         }
     }
+
+    std::sort(
+        final_detections.begin(), final_detections.end(),
+        [](const Detection &a, const Detection &b)
+        { return a.score > b.score; });
     return final_detections;
 }
 
-std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
+std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr)
 {
     std::vector<int> shape;
     for (int i = 0; i < attr.n_dims; ++i)
     {
         if (attr.dims[i] > 1)
-        {
             shape.push_back(attr.dims[i]);
-        }
     }
     return shape;
 }
 
-std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape)
+std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(
+    cv::Mat img, std::tuple<int, int> new_shape)
 {
-    cv::Mat img_rgb;
     if (img.empty())
-    {
-        LOGE("Preprocess received empty image");
         return {};
-    }
 
+    cv::Mat img_rgb;
     if (img.channels() == 4)
         cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
     else if (img.channels() == 3)
@@ -124,264 +137,308 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     else
         img_rgb = img.clone();
 
-    int orig_h = img.rows, orig_w = img.cols;
-    float scale = std::min(static_cast<float>(std::get<0>(new_shape)) / orig_h,
-                           static_cast<float>(std::get<1>(new_shape)) / orig_w);
-    int new_h = static_cast<int>(round(orig_h * scale));
-    int new_w = static_cast<int>(round(orig_w * scale));
+    int original_h = img.rows;
+    int original_w = img.cols;
+    int target_h = std::get<0>(new_shape);
+    int target_w = std::get<1>(new_shape);
+    float scale = std::min(
+        static_cast<float>(target_h) / original_h,
+        static_cast<float>(target_w) / original_w);
+    int resized_h = static_cast<int>(std::round(original_h * scale));
+    int resized_w = static_cast<int>(std::round(original_w * scale));
 
     cv::Mat img_resized;
-    cv::resize(img_rgb, img_resized, cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
+    cv::resize(img_rgb, img_resized, cv::Size(resized_w, resized_h), 0, 0, cv::INTER_LINEAR);
 
-    int pad_h = std::get<0>(new_shape) - new_h;
-    int pad_w = std::get<1>(new_shape) - new_w;
-    int pad_left = static_cast<int>(round(pad_w / 2.0 - 0.1));
-    int pad_right = static_cast<int>(round(pad_w / 2.0 + 0.1));
-    int pad_top = static_cast<int>(round(pad_h / 2.0 - 0.1));
-    int pad_bottom = static_cast<int>(round(pad_h / 2.0 + 0.1));
+    int pad_h = target_h - resized_h;
+    int pad_w = target_w - resized_w;
+    int pad_top = pad_h / 2;
+    int pad_bottom = pad_h - pad_top;
+    int pad_left = pad_w / 2;
+    int pad_right = pad_w - pad_left;
 
     cv::Mat img_padded;
-    cv::copyMakeBorder(img_resized, img_padded, pad_top, pad_bottom, pad_left, pad_right,
-                       cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
+    cv::copyMakeBorder(
+        img_resized, img_padded, pad_top, pad_bottom, pad_left, pad_right,
+        cv::BORDER_CONSTANT, cv::Scalar(114, 114, 114));
 
     cv::Mat img_float;
     img_padded.convertTo(img_float, CV_32F, 1.0 / 255.0);
-
     return std::make_tuple(img_float, scale, std::make_tuple(pad_left, pad_top));
 }
 
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point)
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
 {
+    std::vector<uint8_t> tensor_data;
     if (float_img.empty() || float_img.type() != CV_32FC3)
-        return cv::Mat();
-
-    cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8SC3);
-    const float *src_ptr = (const float *)float_img.data;
-    int8_t *dst_ptr = (int8_t *)quantized_img.data;
-
-    int total_elements = float_img.total() * float_img.channels();
-    for (int i = 0; i < total_elements; ++i)
     {
-        float val = std::round(src_ptr[i] / scale) + zero_point;
-        dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
     }
-    return quantized_img;
+
+    int total_elements = static_cast<int>(float_img.total() * float_img.channels());
+    const float *src_ptr = float_img.ptr<float>();
+
+    // Quantize with the tensor scale/zero point and saturate to the target type.
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
+    {
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, value)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, value)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, value)));
+        }
+    }
+    else
+    {
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
+    }
+
+    return tensor_data;
 }
 
-inline float sigmoid(float x)
-{
-    return 1.0f / (1.0f + std::exp(-x));
-}
-
-std::vector<Detection> postprocess(float *out0_data, const std::vector<int> &out0_shape,
-                                   float *out1_data, const std::vector<int> &out1_shape,
-                                   float *out2_data, const std::vector<int> &out2_shape,
-                                   std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-                                   float conf_thresh, float iou_threshold)
+std::vector<Detection> postprocess(
+    const std::vector<float *> &out_ptrs,
+    const std::vector<std::vector<int>> &out_shapes,
+    int input_h, int input_w,
+    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
+    float conf_thresh, float iou_threshold)
 {
     float scale = std::get<1>(input_tuple);
     int pad_left = std::get<0>(std::get<2>(input_tuple));
     int pad_top = std::get<1>(std::get<2>(input_tuple));
+    float safe_threshold = std::max(1e-5f, std::min(conf_thresh, 1.0f - 1e-5f));
+    float inverse_threshold = std::log(safe_threshold / (1.0f - safe_threshold));
+    constexpr int num_anchors = 3;
+    constexpr int values_per_anchor = 5 + NUM_CLASSES + NUM_MASK_COEFFICIENTS;
+    constexpr int expected_channels = num_anchors * values_per_anchor;
+    std::vector<Detection> detections;
 
-    std::vector<Detection> detections_orig;
-
-    auto process_branch = [&](float *data, const std::vector<int> &shape)
+    // Each NHWC cell contains three anchors with 117 values per anchor.
+    for (int output_idx = 0; output_idx < 3; ++output_idx)
     {
-        int total_elements = 1;
-        for (int d : shape)
-            total_elements *= d;
-
-        // Dynamically deduce grid size from total memory block assuming 351 channels (3 * 117)
-        int grid_size = static_cast<int>(std::round(std::sqrt(total_elements / 351.0f)));
-        int stride = 640 / grid_size;
-        int anchor_idx = (stride == 8) ? 0 : (stride == 16) ? 1 : 2;
-
-        for (int y = 0; y < grid_size; ++y)
+        const auto &shape = out_shapes[output_idx];
+        int stride = STRIDES[output_idx];
+        int expected_h = input_h / stride;
+        int expected_w = input_w / stride;
+        if (shape.size() != 3 || shape[0] != expected_h ||
+            shape[1] != expected_w || shape[2] != expected_channels)
         {
-            for (int x = 0; x < grid_size; ++x)
-            {
-                for (int a = 0; a < 3; ++a)
-                {
-                    // Standard NHWC memory layout index for YOLOv5-seg (351 depth instead of 255)
-                    int base_idx = y * (grid_size * 351) + x * 351 + a * 117;
+            std::cerr << "Unexpected YOLOv5-Seg output shape for stride "
+                      << stride << "." << std::endl;
+            return {};
+        }
 
-                    float obj_conf = sigmoid(data[base_idx + 4]);
-                    if (obj_conf < conf_thresh)
+        int height = shape[0];
+        int width = shape[1];
+        float *data = out_ptrs[output_idx];
+
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                const float *cell_data = data + (y * width + x) * expected_channels;
+
+                for (int anchor_idx = 0; anchor_idx < num_anchors; ++anchor_idx)
+                {
+                    const float *prediction = cell_data + anchor_idx * values_per_anchor;
+                    if (prediction[4] <= inverse_threshold)
                         continue;
 
-                    float max_cls_prob = 0.0f;
-                    int best_cls = -1;
-
-                    // 80 classes
-                    for (int c = 0; c < 80; ++c)
+                    float max_class_logit = -1e9f;
+                    int class_id = -1;
+                    for (int class_idx = 0; class_idx < NUM_CLASSES; ++class_idx)
                     {
-                        float cls_prob = sigmoid(data[base_idx + 5 + c]);
-                        if (cls_prob > max_cls_prob)
+                        float class_logit = prediction[5 + class_idx];
+                        if (class_logit > max_class_logit)
                         {
-                            max_cls_prob = cls_prob;
-                            best_cls = c;
+                            max_class_logit = class_logit;
+                            class_id = class_idx;
                         }
                     }
 
-                    float final_score = obj_conf * max_cls_prob;
-                    if (final_score >= conf_thresh)
+                    float score = sigmoid(prediction[4]) * sigmoid(max_class_logit);
+                    if (score <= conf_thresh)
+                        continue;
+
+                    float box_x = sigmoid(prediction[0]);
+                    float box_y = sigmoid(prediction[1]);
+                    float box_w = sigmoid(prediction[2]) * 2.0f;
+                    float box_h = sigmoid(prediction[3]) * 2.0f;
+                    float center_x = (box_x * 2.0f - 0.5f + x) * stride;
+                    float center_y = (box_y * 2.0f - 0.5f + y) * stride;
+                    box_w = box_w * box_w * ANCHORS[output_idx][anchor_idx][0];
+                    box_h = box_h * box_h * ANCHORS[output_idx][anchor_idx][1];
+
+                    Detection detection;
+                    detection.x1 = std::max(0.0f, (center_x - box_w * 0.5f - pad_left) / scale);
+                    detection.y1 = std::max(0.0f, (center_y - box_h * 0.5f - pad_top) / scale);
+                    detection.x2 = std::max(0.0f, (center_x + box_w * 0.5f - pad_left) / scale);
+                    detection.y2 = std::max(0.0f, (center_y + box_h * 0.5f - pad_top) / scale);
+                    detection.score = score;
+                    detection.class_id = class_id;
+                    for (int coefficient_idx = 0;
+                         coefficient_idx < NUM_MASK_COEFFICIENTS; ++coefficient_idx)
                     {
-                        float tx = data[base_idx + 0];
-                        float ty = data[base_idx + 1];
-                        float tw = data[base_idx + 2];
-                        float th = data[base_idx + 3];
-
-                        float bx = (sigmoid(tx) * 2.0f - 0.5f + x) * stride;
-                        float by = (sigmoid(ty) * 2.0f - 0.5f + y) * stride;
-                        float bw = pow(sigmoid(tw) * 2.0f, 2) * ANCHORS[anchor_idx][a][0];
-                        float bh = pow(sigmoid(th) * 2.0f, 2) * ANCHORS[anchor_idx][a][1];
-
-                        float x1 = (bx - bw / 2.0f - pad_left) / scale;
-                        float y1 = (by - bh / 2.0f - pad_top) / scale;
-                        float x2 = (bx + bw / 2.0f - pad_left) / scale;
-                        float y2 = (by + bh / 2.0f - pad_top) / scale;
-
-                        Detection det;
-                        det.x1 = std::max(0.0f, x1);
-                        det.y1 = std::max(0.0f, y1);
-                        det.x2 = std::max(0.0f, x2);
-                        det.y2 = std::max(0.0f, y2);
-                        det.score = final_score;
-                        det.class_id = best_cls;
-                        det.class_name = COCO_CLASSES[best_cls];
-
-                        // Extract 32 mask coefficients (indices 85 through 116)
-                        for (int m = 0; m < 32; ++m) {
-                            det.mask_coeff.push_back(data[base_idx + 85 + m]);
-                        }
-
-                        detections_orig.push_back(det);
+                        detection.mask_coefficients[coefficient_idx] =
+                            prediction[5 + NUM_CLASSES + coefficient_idx];
                     }
+                    detections.push_back(detection);
                 }
             }
         }
-    };
+    }
 
-    process_branch(out0_data, out0_shape);
-    process_branch(out1_data, out1_shape);
-    process_branch(out2_data, out2_shape);
+    const auto &prototype_shape = out_shapes[3];
+    if (prototype_shape.size() != 3 || prototype_shape[0] != 160 ||
+        prototype_shape[1] != 160 || prototype_shape[2] != NUM_MASK_COEFFICIENTS)
+    {
+        std::cerr << "Unexpected YOLOv5-Seg prototype shape." << std::endl;
+        return {};
+    }
 
-    return nms(detections_orig, iou_threshold);
+    return nms_by_class(detections, iou_threshold);
 }
 
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections,
-                        float* proto_mask_data, const std::vector<int>& proto_shape,
-                        float scale, std::tuple<int, int> pad)
+cv::Mat draw_detections(
+    cv::Mat image, const std::vector<Detection> &detections,
+    float *prototype_data, const std::vector<int> &prototype_shape,
+    int input_h, int input_w, float scale, std::tuple<int, int> pad, float alpha)
 {
     cv::Mat drawn_image = image.clone();
+    if (prototype_shape.size() != 3 || prototype_shape[0] != 160 ||
+        prototype_shape[1] != 160 || prototype_shape[2] != NUM_MASK_COEFFICIENTS)
+    {
+        std::cerr << "Cannot draw masks: unexpected prototype shape." << std::endl;
+        return drawn_image;
+    }
 
+    int prototype_h = prototype_shape[0];
+    int prototype_w = prototype_shape[1];
     int pad_left = std::get<0>(pad);
     int pad_top = std::get<1>(pad);
-    int input_size = 640;
+    int resized_w = static_cast<int>(std::round(image.cols * scale));
+    int resized_h = static_cast<int>(std::round(image.rows * scale));
+    cv::Mat prototype_mat(
+        prototype_h * prototype_w, NUM_MASK_COEFFICIENTS, CV_32F, prototype_data);
 
-    // Figure out Proto Mask layout. Python usually outputs [160, 160, 32] (NHWC) or [32, 160, 160] (NCHW)
-    bool proto_channels_last = (proto_shape.size() == 3 && proto_shape[2] == 32) ||
-                               (proto_shape.size() == 4 && proto_shape[3] == 32);
+    for (const auto &detection : detections)
+    {
+        int class_id = detection.class_id;
+        if (class_id < 0 || class_id >= NUM_CLASSES)
+            continue;
 
-    cv::Mat proto_mat;
-    if (proto_channels_last) {
-        // [160*160, 32] layout
-        proto_mat = cv::Mat(160 * 160, 32, CV_32F, proto_mask_data);
-    } else {
-        // [32, 160*160] layout
-        proto_mat = cv::Mat(32, 160 * 160, CV_32F, proto_mask_data);
-    }
+        cv::Scalar color = get_color(class_id);
 
-    for (const auto& det : detections) {
-        int class_id = det.class_id;
-        if (class_id < 0 || class_id >= 80) continue;
+        // Contract the linear mask coefficients against the NHWC prototype.
+        cv::Mat coefficient_mat(
+            1, NUM_MASK_COEFFICIENTS, CV_32F,
+            const_cast<float *>(detection.mask_coefficients.data()));
+        cv::Mat raw_mask = coefficient_mat * prototype_mat.t();
+        raw_mask = raw_mask.reshape(1, prototype_h);
 
-        // Generate color based on class_id
-        float hue = fmod(class_id * 137.508f, 360.0f);
-        cv::Mat hsv(1, 1, CV_8UC3, cv::Scalar(hue / 2.0f, 204, 230));
-        cv::Mat rgb;
-        cv::cvtColor(hsv, rgb, cv::COLOR_HSV2BGR);
-        cv::Scalar color(rgb.at<cv::Vec3b>(0, 0)[0], rgb.at<cv::Vec3b>(0, 0)[1], rgb.at<cv::Vec3b>(0, 0)[2]);
+        cv::Mat clipped_mask;
+        cv::max(raw_mask, -80.0, clipped_mask);
+        cv::min(clipped_mask, 80.0, clipped_mask);
+        cv::Mat exponential;
+        cv::exp(-clipped_mask, exponential);
+        cv::Mat sigmoid_mask;
+        cv::divide(1.0, 1.0 + exponential, sigmoid_mask);
 
-        // === 1. PROCESS MASKS ===
-        cv::Mat coeff_mat(1, 32, CV_32F, (void*)det.mask_coeff.data());
-        cv::Mat raw_mask;
+        cv::Mat input_mask;
+        cv::resize(
+            sigmoid_mask, input_mask, cv::Size(input_w, input_h),
+            0, 0, cv::INTER_LINEAR);
 
-        // Matrix multiplication (dot product of mask_coeff and proto_mask)
-        if (proto_channels_last) {
-            // (1 x 32) * (32 x 25600) -> (1 x 25600)
-            raw_mask = coeff_mat * proto_mat.t();
-        } else {
-            // (1 x 32) * (32 x 25600) -> (1 x 25600)
-            raw_mask = coeff_mat * proto_mat;
+        int roi_x = std::max(0, pad_left);
+        int roi_y = std::max(0, pad_top);
+        int roi_width = std::min(resized_w, input_w - roi_x);
+        int roi_height = std::min(resized_h, input_h - roi_y);
+
+        if (roi_width > 0 && roi_height > 0)
+        {
+            cv::Mat cropped_mask = input_mask(cv::Rect(roi_x, roi_y, roi_width, roi_height));
+            cv::Mat final_mask;
+            cv::resize(
+                cropped_mask, final_mask, cv::Size(image.cols, image.rows),
+                0, 0, cv::INTER_LINEAR);
+            cv::Mat binary_mask = final_mask > 0.5f;
+
+            // Crop the reconstructed mask to its retained detection box.
+            int box_x1 = std::max(0, static_cast<int>(std::floor(detection.x1)));
+            int box_y1 = std::max(0, static_cast<int>(std::floor(detection.y1)));
+            int box_x2 = std::min(image.cols, static_cast<int>(std::ceil(detection.x2)));
+            int box_y2 = std::min(image.rows, static_cast<int>(std::ceil(detection.y2)));
+            cv::Mat bbox_mask = cv::Mat::zeros(image.size(), CV_8U);
+            if (box_x2 > box_x1 && box_y2 > box_y1)
+            {
+                cv::Rect box_roi(box_x1, box_y1, box_x2 - box_x1, box_y2 - box_y1);
+                bbox_mask(box_roi).setTo(255);
+            }
+            cv::bitwise_and(binary_mask, bbox_mask, binary_mask);
+
+            if (cv::countNonZero(binary_mask) > 0)
+            {
+                cv::Mat colored_mask = cv::Mat::zeros(image.size(), image.type());
+                colored_mask.setTo(color, binary_mask);
+                cv::Mat blended;
+                cv::addWeighted(drawn_image, 1.0f - alpha, colored_mask, alpha, 0, blended);
+                blended.copyTo(drawn_image, binary_mask);
+            }
         }
 
-        // Reshape to 160x160 and apply Sigmoid
-        raw_mask = raw_mask.reshape(1, 160);
-        cv::Mat exp_mat;
-        cv::exp(-raw_mask, exp_mat);
-        cv::Mat mask_sigmoid = 1.0 / (1.0 + exp_mat);
+        cv::rectangle(
+            drawn_image,
+            cv::Point(static_cast<int>(detection.x1), static_cast<int>(detection.y1)),
+            cv::Point(static_cast<int>(detection.x2), static_cast<int>(detection.y2)),
+            color, 2);
 
-        // Upscale to model input size (640x640)
-        cv::Mat mask_640;
-        cv::resize(mask_sigmoid, mask_640, cv::Size(input_size, input_size), 0, 0, cv::INTER_LINEAR);
-
-        // Crop Letterbox padding
-        int real_w = std::round(image.cols * scale);
-        int real_h = std::round(image.rows * scale);
-
-        cv::Rect roi(pad_left, pad_top, real_w, real_h);
-        // Safety bound constraints
-        roi.x = std::max(0, roi.x);
-        roi.y = std::max(0, roi.y);
-        roi.width = std::min(input_size - roi.x, roi.width);
-        roi.height = std::min(input_size - roi.y, roi.height);
-
-        cv::Mat cropped_mask = mask_640(roi);
-
-        // Scale back to original image dimensions
-        cv::Mat final_mask;
-        cv::resize(cropped_mask, final_mask, cv::Size(image.cols, image.rows), 0, 0, cv::INTER_LINEAR);
-
-        // Generate Boolean Binary Mask (> 0.5)
-        cv::Mat binary_mask = final_mask > 0.5f;
-
-        // Apply Green overlay to original image via Alpha Blend
-        cv::Mat colored_mask = cv::Mat::zeros(image.size(), image.type());
-        colored_mask.setTo(color, binary_mask);
-
-        cv::Mat blended;
-        cv::addWeighted(drawn_image, 1.0, colored_mask, 0.5, 0, blended); // 0.5 Alpha
-
-        // Copy blended pixels only where mask exists to keep the rest intact
-        blended.copyTo(drawn_image, binary_mask);
-
-        // === 2. DRAW BOUNDING BOX & LABEL ===
-        cv::rectangle(drawn_image,
-                      cv::Point(static_cast<int>(det.x1), static_cast<int>(det.y1)),
-                      cv::Point(static_cast<int>(det.x2), static_cast<int>(det.y2)),
-                      color, 2);
-
-        std::string label = det.class_name + ": " + cv::format("%.2f", det.score);
+        std::string label = std::string(COCO_CLASSES[class_id]) +
+                            ": " + cv::format("%.2f", detection.score);
         int baseline = 0;
-        cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseline);
+        cv::Size text_size = cv::getTextSize(
+            label, cv::FONT_HERSHEY_SIMPLEX, 0.6, 1, &baseline);
+        int label_x = std::max(0, static_cast<int>(detection.x1));
+        int label_y = std::max(
+            static_cast<int>(detection.y1) - 5, text_size.height + baseline);
+        cv::rectangle(
+            drawn_image, cv::Point(label_x, label_y - text_size.height - baseline),
+            cv::Point(label_x + text_size.width, label_y + baseline), color, cv::FILLED);
 
-        int label_x = static_cast<int>(det.x1);
-        int label_y = static_cast<int>(det.y1) - 5;
-        if (label_y < text_size.height)
-            label_y = static_cast<int>(det.y1) + text_size.height + 5;
-
-        cv::rectangle(drawn_image,
-                      cv::Point(label_x, label_y - text_size.height - baseline),
-                      cv::Point(label_x + text_size.width, label_y + baseline),
-                      color, cv::FILLED);
-
-        int brightness = (color[0] + color[1] + color[2]) / 3;
-        cv::Scalar text_color = brightness < 128 ? cv::Scalar(255, 255, 255) : cv::Scalar(0, 0, 0);
-
-        cv::putText(drawn_image, label,
-                    cv::Point(label_x, label_y),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1, cv::LINE_AA);
+        int brightness = static_cast<int>((color[0] + color[1] + color[2]) / 3);
+        cv::Scalar text_color = brightness < 128
+                                    ? cv::Scalar(255, 255, 255)
+                                    : cv::Scalar(0, 0, 0);
+        cv::putText(
+            drawn_image, label, cv::Point(label_x, label_y),
+            cv::FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1, cv::LINE_AA);
     }
+
     return drawn_image;
 }

@@ -19,129 +19,136 @@ import os
 import glob
 import argparse
 import cv2
+import colorsys
 from pathlib import Path
 from amlnn.api import AMLNN
 
-MEAN = np.array([0, 0, 0], dtype=np.float32)
-STD  = np.array([255, 255, 255], dtype=np.float32)
+REG_MAX = 16
 
-def load_class_names(path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            names = [line.strip() for line in f.readlines() if line.strip()]
-        return {idx: name for idx, name in enumerate(names)}
-    except Exception as e:
-        print(f"Warning: Could not load class names from '{path}'. Fallback to generic IDs.")
-        return {}
+CLASS_NAMES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane',
+    'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird',
+    'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
+    'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
+    'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+    'wine glass', 'cup', 'fork', 'knife', 'spoon',
+    'bowl', 'banana', 'apple', 'sandwich', 'orange',
+    'broccoli', 'carrot', 'hot dog', 'pizza', 'doughnut',
+    'cake', 'chair', 'couch', 'potted plant', 'bed',
+    'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+    'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+    'toaster', 'sink', 'refrigerator', 'book', 'clock',
+    'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+]
 
-CLASS_NAMES = load_class_names("../input/coco_80_names.txt")
-
-def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
+def letterbox(img, new_shape, color=(114, 114, 114)):
     shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
     new_unpad = (int(round(shape[1] * scale)), int(round(shape[0] * scale)))
-    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]
-    dw /= 2; dh /= 2
-    img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
-    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
-    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+
+    if shape[::-1] != new_unpad:
+        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+
+    pad_h = new_shape[0] - new_unpad[1]
+    pad_w = new_shape[1] - new_unpad[0]
+    top = pad_h // 2
+    bottom = pad_h - top
+    left = pad_w // 2
+    right = pad_w - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
     return img, scale, (left, top)
 
-def preprocess(img_path, new_shape=(640,640), s=0.003850, zp=-128, tensor_type=2):
+def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     original_img = cv2.imread(str(img_path))
-    if original_img is None: return None, None, None, None
+    if original_img is None:
+        raise ValueError(f"can't read image: {img_path}")
 
-    processed_img, scale, pad = letterbox(original_img, new_shape)
+    processed_img, resize_scale, pad = letterbox(original_img, new_shape)
     rgb_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
+    rgb_float = rgb_img.astype(np.float32)
 
-    normalized_img = (rgb_img.astype(np.float32) - MEAN) / STD
+    # Normalize float input or quantize with the model's scale and zero point.
+    if tensor_type == 0:
+        input_tensor = rgb_float / 255.0
+    elif tensor_type in (2, 3, 4):
+        inv_scale = np.float32(1.0 / (255.0 * scale))
+        raw_value = np.round(rgb_float * inv_scale + zero_point)
 
-    input_tensor = np.expand_dims(normalized_img, axis=0)
+        if tensor_type == 2:
+            input_tensor = np.clip(raw_value, -128, 127).astype(np.int8)
+        elif tensor_type == 3:
+            input_tensor = np.clip(raw_value, 0, 255).astype(np.uint8)
+        else:
+            input_tensor = np.clip(raw_value, -32768, 32767).astype(np.int16)
+    else:
+        raise ValueError(f"Does not support tensor type: {tensor_type}")
 
-    raw_val = np.round(input_tensor / s + zp)
-    if tensor_type == 2:
-        input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
-    elif tensor_type == 3:
-        input_tensor = np.clip(raw_val, 0, 255).astype(np.uint8)
+    input_tensor = np.expand_dims(input_tensor, axis=0)
+    return input_tensor, original_img, resize_scale, pad
 
-    return input_tensor, original_img, scale, pad
+def sigmoid(values):
+    return 1.0 / (1.0 + np.exp(-np.clip(values, -80.0, 80.0)))
 
-def postprocess(outputs, scale, pad, class_names, conf_threshold=0.25, iou_threshold=0.45):
+def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold, reg_max = REG_MAX):
+    input_h, input_w = input_shape
+    safe_threshold = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
+    inverse_threshold = np.log(safe_threshold / (1.0 - safe_threshold))
+    projection = np.arange(reg_max, dtype=np.float32).reshape(1, reg_max, 1)
     all_boxes = []
     all_scores = []
     all_class_ids = []
 
-    # Inverse sigmoid for early stopping on raw logits
-    safe_thresh = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
-    inv_thresh = np.log(safe_thresh / (1.0 - safe_thresh))
-
+    # Output order: [CLS_8, DFL_8, CLS_16, DFL_16, CLS_32, DFL_32].
     strides = [8, 16, 32]
+    for output_idx, stride in enumerate(strides):
+        class_logits = np.squeeze(outputs[output_idx * 2])
+        dfl_logits = np.squeeze(outputs[output_idx * 2 + 1])
+        grid_h = input_h // stride
+        grid_w = input_w // stride
+        num_cells = grid_h * grid_w
 
-    for s_idx in range(3):
-        # s_idx 0 -> cls=0 (Reshape_3), dfl=1 (Reshape_0)
-        # s_idx 1 -> cls=2 (Reshape_4), dfl=3 (Reshape_1)
-        # s_idx 2 -> cls=4 (Reshape_5), dfl=5 (Reshape_2)
-        cls_idx = s_idx * 2
-        dfl_idx = s_idx * 2 + 1
+        if class_logits.shape != (len(CLASS_NAMES), num_cells):
+            raise ValueError(
+                f"Unexpected class shape for stride {stride}: "
+                f"{outputs[output_idx * 2].shape}"
+            )
+        if dfl_logits.shape != (4 * reg_max, num_cells):
+            raise ValueError(
+                f"Unexpected DFL shape for stride {stride}: "
+                f"{outputs[output_idx * 2 + 1].shape}"
+            )
 
-        stride = strides[s_idx]
-        grid_size = 640 // stride
-        num_cells = grid_size * grid_size  # 6400, 1600, or 400
-
-        cls_raw = np.squeeze(outputs[cls_idx])
-        dfl_raw = np.squeeze(outputs[dfl_idx])
-
-        if cls_raw.shape[1] != num_cells:
-            cls_raw = cls_raw.T
-        if dfl_raw.shape[1] != num_cells:
-            dfl_raw = dfl_raw.T
-
-        # Find max logit score across classes
-        max_raw_scores = np.max(cls_raw, axis=0)
-
-        # Early Stopping check against inverse threshold
-        valid_mask = max_raw_scores > inv_thresh
-        if not np.any(valid_mask):
+        max_raw_scores = np.max(class_logits, axis=0)
+        valid_indices = np.where(max_raw_scores > inverse_threshold)[0]
+        if len(valid_indices) == 0:
             continue
 
-        valid_cls_ids = np.argmax(cls_raw[:, valid_mask], axis=0)
-        valid_raw_scores = max_raw_scores[valid_mask]
+        valid_class_logits = class_logits[:, valid_indices]
+        scores = sigmoid(max_raw_scores[valid_indices])
+        class_ids = np.argmax(valid_class_logits, axis=0)
 
-        # Convert valid raw logits to probabilities via Sigmoid
-        valid_scores = 1.0 / (1.0 + np.exp(-valid_raw_scores))
+        # Decode four reg_max distributions into left, top, right, and bottom distances.
+        valid_dfl = dfl_logits[:, valid_indices].reshape(4, reg_max, -1)
+        valid_dfl -= np.max(valid_dfl, axis=1, keepdims=True)
+        probabilities = np.exp(valid_dfl)
+        probabilities /= np.sum(probabilities, axis=1, keepdims=True)
+        distances = np.sum(probabilities * projection, axis=1)
 
-        # Extract valid DFL predictions
-        valid_dfl_raw = dfl_raw[:, valid_mask] # (64, V)
-        V = valid_dfl_raw.shape[1]
+        grid_x = (valid_indices % grid_w).astype(np.float32)
+        grid_y = (valid_indices // grid_w).astype(np.float32)
+        center_x = (grid_x + 0.5) * stride
+        center_y = (grid_y + 0.5) * stride
+        x1 = center_x - distances[0] * stride
+        y1 = center_y - distances[1] * stride
+        x2 = center_x + distances[2] * stride
+        y2 = center_y + distances[3] * stride
 
-        # 16-Bin DFL Decode
-        dfl = valid_dfl_raw.reshape(4, 16, V)
-        dfl_max = np.max(dfl, axis=1, keepdims=True)
-        exp_dfl = np.exp(dfl - dfl_max)
-        softmax_dfl = exp_dfl / np.sum(exp_dfl, axis=1, keepdims=True)
-
-        weights = np.arange(16, dtype=np.float32).reshape(1, 16, 1)
-        ltrb = np.sum(softmax_dfl * weights, axis=1) # (4, V)
-
-        # Generate grid coordinates
-        grid_y, grid_x = np.mgrid[0:grid_size, 0:grid_size]
-        valid_gx = grid_x.flatten()[valid_mask]
-        valid_gy = grid_y.flatten()[valid_mask]
-
-        cx = (valid_gx + 0.5) * stride
-        cy = (valid_gy + 0.5) * stride
-
-        x1 = cx - ltrb[0] * stride
-        y1 = cy - ltrb[1] * stride
-        x2 = cx + ltrb[2] * stride
-        y2 = cy + ltrb[3] * stride
-
-        valid_boxes = np.stack([x1, y1, x2, y2], axis=1)
-
-        all_boxes.append(valid_boxes)
-        all_scores.append(valid_scores)
-        all_class_ids.append(valid_cls_ids)
+        all_boxes.append(np.stack([x1, y1, x2, y2], axis=1))
+        all_scores.append(scores)
+        all_class_ids.append(class_ids)
 
     if not all_boxes:
         return []
@@ -150,128 +157,149 @@ def postprocess(outputs, scale, pad, class_names, conf_threshold=0.25, iou_thres
     scores = np.concatenate(all_scores, axis=0)
     class_ids = np.concatenate(all_class_ids, axis=0)
 
-    # Revert Letterbox Scale and Pad
+    # Undo letterbox padding and resize scaling.
     pad_x, pad_y = pad
     boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale
     boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale
-    boxes = np.maximum(boxes, 0)
+    boxes = np.maximum(boxes, 0.0)
+    widths = boxes[:, 2] - boxes[:, 0]
+    heights = boxes[:, 3] - boxes[:, 1]
+    boxes_xywh = np.stack([boxes[:, 0], boxes[:, 1], widths, heights], axis=1)
 
-    detections = []
-
-    # EXACT PER-CLASS NMS
-    unique_classes = np.unique(class_ids)
-
-    for c in unique_classes:
-        class_mask = class_ids == c
-        c_boxes = boxes[class_mask]
-        c_scores = scores[class_mask]
-
-        # NMSBoxes needs [x, y, w, h] format
-        c_widths = c_boxes[:, 2] - c_boxes[:, 0]
-        c_heights = c_boxes[:, 3] - c_boxes[:, 1]
-        c_boxes_xywh = np.stack([c_boxes[:, 0], c_boxes[:, 1], c_widths, c_heights], axis=1)
-
+    # Run NMS separately for each class.
+    selected_indices = []
+    for class_id in np.unique(class_ids):
+        class_indices = np.where(class_ids == class_id)[0]
         nms_indices = cv2.dnn.NMSBoxes(
-            c_boxes_xywh.tolist(), c_scores.tolist(), conf_threshold, iou_threshold
+            boxes_xywh[class_indices].tolist(), scores[class_indices].tolist(),
+            conf_threshold, iou_threshold
         )
-
         if len(nms_indices) > 0:
-            nms_indices = np.array(nms_indices).flatten()
-            for idx in nms_indices:
-                bx1, by1, bx2, by2 = c_boxes[idx]
-                detections.append({
-                    'bbox': [float(bx1), float(by1), float(bx2), float(by2)],
-                    'confidence': float(c_scores[idx]),
-                    'class_id': int(c),
-                    'class_name': class_names.get(int(c), f'class_{int(c)}')
-                })
+            selected_indices.extend(class_indices[nms_indices.flatten()].tolist())
+
+    selected_indices.sort(key=lambda idx: float(scores[idx]), reverse=True)
+    detections = []
+    for detection_idx in selected_indices:
+        class_id = int(class_ids[detection_idx])
+        detections.append({
+            'bbox': boxes[detection_idx].tolist(),
+            'confidence': float(scores[detection_idx]),
+            'class_id': class_id,
+            'class_name': CLASS_NAMES[class_id]
+        })
 
     return detections
 
-def get_class_color(class_id):
-    import colorsys
+def get_class_color_and_text_color(class_id):
     hue = (class_id * 137.508) % 360
-    rgb = colorsys.hsv_to_rgb(hue/360.0, 0.8, 0.9)
-    return (int(rgb[2]*255), int(rgb[1]*255), int(rgb[0]*255))
+    rgb = colorsys.hsv_to_rgb(hue / 360.0, 0.8, 0.9)
+    bgr = (int(rgb[2] * 255), int(rgb[1] * 255), int(rgb[0] * 255))
+    text_color = (255, 255, 255) if sum(bgr) < 400 else (0, 0, 0)
+    return bgr, text_color
 
-def draw_detections(img, detections, save_path):
-    result_img = img.copy()
-    for det in detections:
-        x1, y1, x2, y2 = [int(coord) for coord in det['bbox']]
-        color = get_class_color(det['class_id'])
+def draw_detections(img, detections, save_path=None, in_place=False):
+    result_img = img if in_place else img.copy()
+
+    for detection in detections:
+        x1, y1, x2, y2 = [int(value) for value in detection['bbox']]
+        confidence = detection['confidence']
+        class_name = detection['class_name']
+        color, text_color = get_class_color_and_text_color(detection['class_id'])
 
         cv2.rectangle(result_img, (x1, y1), (x2, y2), color, 2)
-        label = f"{det['class_name']}: {det['confidence']:.2f}"
+        label = f"{class_name}: {confidence:.2f}"
         (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
-        cv2.rectangle(result_img, (x1, y1 - label_h - 10), (x1 + label_w, y1), color, -1)
-        text_color = (255, 255, 255) if sum(color) < 400 else (0, 0, 0)
-        cv2.putText(result_img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
+        label_x = max(0, x1)
+        label_y = max(y1, label_h + 10)
+        cv2.rectangle(
+            result_img, (label_x, label_y - label_h - 10),
+            (label_x + label_w, label_y), color, cv2.FILLED
+        )
+        cv2.putText(
+            result_img, label, (label_x, label_y - 5), cv2.FONT_HERSHEY_SIMPLEX,
+            0.6, text_color, thickness=1, lineType=cv2.LINE_AA
+        )
 
-    cv2.imwrite(save_path, result_img)
+    if save_path:
+        cv2.imwrite(save_path, result_img)
+
+    return result_img
 
 def main():
-    parser = argparse.ArgumentParser(description="Yolov11 Demo")
+    parser = argparse.ArgumentParser(description="YOLOv11 Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
+    parser.add_argument('--conf', type=float, default=0.25)
+    parser.add_argument('--nms', type=float, default=0.45)
     args = parser.parse_args()
 
     amlnn = AMLNN()
-
     amlnn.init_runtime(mode="native", enable_perf=True)
-
     amlnn.load_model(path=args.model_path)
-
     tensor_info = amlnn.get_tensor_info()
-
     print(amlnn.get_sdk_version())
 
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
     image_files = []
-    for ext in image_extensions:
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
+    for extension in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension)))
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension.upper())))
 
     if not image_files:
         print(f"No image files found in {args.image_dir}")
+        amlnn.uninit()
         return 0
 
     print(f"Found {len(image_files)} image file(s) to process:")
-    for img_file in image_files:
-        print(f"  - {os.path.basename(img_file)}")
+    for image_path in image_files:
+        print(f"  - {os.path.basename(image_path)}")
     print()
 
     tensor_attr = tensor_info["inputs"][0]
-    s = float(tensor_attr["scale"])
-    zp = int(tensor_attr["zp"])
+    input_h = int(tensor_attr["dims"][1])
+    input_w = int(tensor_attr["dims"][2])
+    input_shape = (input_h, input_w)
+    input_scale = float(tensor_attr["scale"])
+    input_zero_point = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
 
-    for i, image_path in enumerate(image_files, 1):
+    for image_idx, image_path in enumerate(image_files, 1):
+        print("=" * 60)
+        print(f"Processing image {image_idx}/{len(image_files)}: {os.path.basename(image_path)}")
+        print("=" * 60)
+
         try:
-            input_tensor, original_img, scale, pad = preprocess(
-                image_path, new_shape=(640, 640), s=s, zp=zp, tensor_type=tensor_type
+            input_tensor, original_img, resize_scale, pad = preprocess(
+                image_path, input_shape, input_scale, input_zero_point, tensor_type
+            )
+            outputs = amlnn.inference(inputs=[input_tensor])
+            detections = postprocess(
+                outputs, input_shape, resize_scale, pad, args.conf, args.nms
             )
 
-            outputs = amlnn.inference(inputs=[input_tensor])
-
-            detections = postprocess(outputs, scale, pad, CLASS_NAMES, conf_threshold=0.25, iou_threshold=0.45)
-
             if detections:
-                print(f"Detected {len(detections)} objects in {os.path.basename(image_path)}")
+                print(f"    Detected {len(detections)} objects:")
+                for detection_idx, detection in enumerate(detections, 1):
+                    print(
+                        f"      {detection_idx}. {detection['class_name']} "
+                        f"({detection['confidence']:.2f})"
+                    )
             else:
-                print(f"No objects detected in {os.path.basename(image_path)}")
+                print("    No objects detected")
 
-            model_name = Path(args.model_path).stem
-            result_dir = f"{model_name}_result"
+            result_dir = f"{Path(args.model_path).stem}_result"
             os.makedirs(result_dir, exist_ok=True)
             save_path = os.path.join(result_dir, f"{Path(image_path).stem}_result.jpg")
+            draw_detections(original_img, detections, save_path)
+            print(f"    Result saved to: {save_path}")
+        except Exception as error:
+            print(f"Error processing {os.path.basename(image_path)}: {error}")
 
-            draw_detections(original_img, detections, str(save_path))
-
-        except Exception as e:
-            print(f"Error processing {os.path.basename(image_path)}: {e}")
         print()
-    print(f"=" * 60)
+
+    print("=" * 60)
+    print(amlnn.get_perf_info())
+    amlnn.perf_visualize()
     amlnn.uninit()
-    
+
 if __name__ == "__main__":
     main()

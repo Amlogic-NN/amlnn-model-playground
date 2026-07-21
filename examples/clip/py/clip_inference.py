@@ -14,340 +14,197 @@
 # limitations under the License.
 #
 
-import os
-import argparse
 import numpy as np
+import os
+import glob
+import argparse
 import cv2
-from PIL import Image
 from transformers import CLIPTokenizer
 from amlnn.api import AMLNN
 
 MEAN = np.array([122.7709383, 116.7460125, 104.09373615], dtype=np.float32)
 STD = np.array([68.5005327, 66.6321579, 70.32316305], dtype=np.float32)
+MAX_TEXT_LENGTH = 64
 
-# ==================== Utility Functions ====================
 
-def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
-    """Compute softmax values for array x."""
+def softmax(x, axis=-1):
     x = x - np.max(x, axis=axis, keepdims=True)
-    e = np.exp(x)
-    return e / np.sum(e, axis=axis, keepdims=True)
+    exp_x = np.exp(x)
+    return exp_x / np.sum(exp_x, axis=axis, keepdims=True)
 
 
-def l2_normalize(x: np.ndarray, axis: int = -1, eps: float = 1e-12) -> np.ndarray:
-    """L2 normalize array x along specified axis."""
-    return x / (np.linalg.norm(x, axis=axis, keepdims=True) + eps)
+def l2_normalize(x, axis=-1):
+    return x / np.maximum(np.linalg.norm(x, axis=axis, keepdims=True), 1e-12)
 
-# ==================== Vision Preprocessing ====================
-def preprocess_image(img_path, target_size=224, data_format='NHWC', tensor_type=2):
-    """
-    CLIP Preprocess:
-    1. Scale shorter side to target_size (Bicubic).
-    2. Center crop to target_size x target_size.
-    3. Normalize using pre-multiplied mean/std for [0, 255] range.
-    4. Format layout and quantize.
-    """
+
+def preprocess_image(img_path, input_shape, scale, zero_point, tensor_type):
     original_img = cv2.imread(str(img_path))
     if original_img is None:
         raise ValueError(f"can't read image: {img_path}")
 
-    # Convert BGR to RGB
+    input_h, input_w = input_shape
     rgb_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
-    orig_h, orig_w = rgb_img.shape[:2]
+    original_h, original_w = rgb_img.shape[:2]
+    resize_scale = max(input_w / original_w, input_h / original_h)
+    resized_w = int(round(original_w * resize_scale))
+    resized_h = int(round(original_h * resize_scale))
+    resized_img = cv2.resize(rgb_img, (resized_w, resized_h), interpolation=cv2.INTER_CUBIC)
+    left = (resized_w - input_w) // 2
+    top = (resized_h - input_h) // 2
+    cropped_img = resized_img[top:top + input_h, left:left + input_w]
+    normalized_img = (cropped_img.astype(np.float32) - MEAN) / STD
 
-    # 1. Scale the shorter side
-    scale = target_size / min(orig_w, orig_h)
-    new_w = int(orig_w * scale)
-    new_h = int(orig_h * scale)
-
-    # CLIP typically expects BICUBIC interpolation
-    resized_img = cv2.resize(rgb_img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-
-    # 2. Center crop
-    left = (new_w - target_size) // 2
-    top = (new_h - target_size) // 2
-    cropped_img = resized_img[top:top+target_size, left:left+target_size]
-
-    # 3. Normalization
-    img_float = cropped_img.astype(np.float32)
-    normalized_img = (img_float - MEAN) / STD
-
-    # 4. Layout Formatting
-    if data_format == 'NCHW':
-        input_tensor = np.transpose(normalized_img, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-    elif data_format == 'NHWC':
-        input_tensor = np.expand_dims(normalized_img, axis=0)
+    if tensor_type == 0:
+        input_tensor = normalized_img.astype(np.float32)
+    elif tensor_type in (2, 3, 4):
+        raw_value = np.round(normalized_img / scale + zero_point)
+        if tensor_type == 2:
+            input_tensor = np.clip(raw_value, -128, 127).astype(np.int8)
+        elif tensor_type == 3:
+            input_tensor = np.clip(raw_value, 0, 255).astype(np.uint8)
+        else:
+            input_tensor = np.clip(raw_value, -32768, 32767).astype(np.int16)
     else:
-        raise ValueError(f"Unsupported data format: {data_format}.")
+        raise ValueError(f"Does not support tensor type: {tensor_type}")
 
-    # 5. Quantization
-    if tensor_type == 2:   # INT8
-        input_tensor = np.clip(input_tensor, -128, 127).astype(np.int8)
-    elif tensor_type == 3: # UINT8
-        input_tensor = np.clip(input_tensor, 0, 255).astype(np.uint8)
-    elif tensor_type == 4: # INT16
-        input_tensor = np.clip(input_tensor, -32768, 32767).astype(np.int16)
-    elif tensor_type == 0: # FLOAT32
-        input_tensor = input_tensor.astype(np.float32)
-    else:
-        raise ValueError(f"Unsupported tensor type: {tensor_type}.")
+    return np.expand_dims(input_tensor, axis=0)
 
-    return input_tensor
 
-# ==================== Text Preprocessing ====================
+def preprocess_text(tokenizer, text, max_len):
+    encoding = tokenizer(text, padding="max_length", truncation=True, max_length=max_len, return_tensors="np")
+    return encoding["input_ids"].astype(np.int64)
 
-def preprocess_text(tokenizer: CLIPTokenizer, text: str, max_len: int = 64) -> np.ndarray:
-    """
-    Preprocess text for CLIP model using CLIPTokenizer.
 
-    Args:
-        tokenizer: CLIPTokenizer instance
-        text (str): Input text string
-        max_len (int): Maximum sequence length (default: 64)
+def compute_image_embedding(vision_amlnn, image_path, input_shape, scale, zero_point, tensor_type):
+    input_tensor = preprocess_image(image_path, input_shape, scale, zero_point, tensor_type)
+    outputs = vision_amlnn.inference(inputs=[input_tensor], inputs_data_format="NHWC", outputs_data_format="NHWC")
+    features = np.asarray(outputs[0], dtype=np.float32).reshape(1, -1)
+    return l2_normalize(features, axis=1)
 
-    Returns:
-        np.ndarray: Tokenized text with shape (1, max_len) as int64
-    """
-    enc = tokenizer(
-        text,
-        padding="max_length",
-        truncation=True,
-        max_length=max_len,
-        return_tensors="np",
-    )
-    # text model input: int64[1, max_len]
-    input_ids = enc["input_ids"].astype(np.int64)
-    return input_ids
 
-# ==================== Model Inference ====================
+def compute_text_embedding(text_amlnn, tokenizer, text, input_shape):
+    input_ids = preprocess_text(tokenizer, text, input_shape[-1]).reshape(input_shape)
+    outputs = text_amlnn.inference(inputs=[input_ids], inputs_data_format="NHWC", outputs_data_format="NHWC")
+    features = np.asarray(outputs[0], dtype=np.float32).reshape(1, -1)
+    return l2_normalize(features, axis=1)
 
-def compute_image_embedding(vision_amlnn: AMLNN, image_path: str, tensor_type=0) -> np.ndarray:
-    """
-    Compute image embedding using vision model.
 
-    Args:
-        vision_amlnn: AMLNN instance for vision model
-        image_path (str): Path to input image
-
-    Returns:
-        np.ndarray: L2-normalized image embedding with shape (1, embed_dim)
-    """
-    input_data = preprocess_image(image_path, data_format ="NHWC", tensor_type=tensor_type)  # [1, 224, 224, 3]
-
-    outputs = vision_amlnn.inference(
-        inputs=[input_data],
-        inputs_data_format='NHWC',
-        outputs_data_format='NHWC'
-    )
-
-    feats = outputs[0].astype(np.float32)
-    feats = feats.reshape(1, -1)  # Squeeze to [1, embed_dim]
-    return l2_normalize(feats, axis=1)
-
-def compute_text_embedding(text_amlnn: AMLNN, tokenizer: CLIPTokenizer, text: str, max_len: int = 64) -> np.ndarray:
-    """
-    Compute text embedding using text model.
-
-    Args:
-        text_amlnn: AMLNN instance for text model
-        tokenizer: CLIPTokenizer instance
-        text (str): Input text string
-        max_len (int): Maximum sequence length
-
-    Returns:
-        np.ndarray: L2-normalized text embedding with shape (1, embed_dim)
-    """
-    input_ids = preprocess_text(tokenizer, text, max_len)  # [1, max_len]
-
-    # AMLNN requires 4D input, reshape to (1, 1, 1, max_len)
-    input_ids_4d = input_ids[:, None, None, :]  # [1, 1, 1, max_len]
-
-    outputs = text_amlnn.inference(
-        inputs=[input_ids_4d],
-        inputs_data_format='NHWC',
-        outputs_data_format='NHWC'
-    )
-
-    feats = outputs[0].astype(np.float32)
-    feats = feats.reshape(1, -1)  # Squeeze to [1, embed_dim]
-    return l2_normalize(feats, axis=1)
-
-def compute_text_embeddings_batch(text_amlnn: AMLNN, tokenizer: CLIPTokenizer, texts: list, max_len: int = 64) -> np.ndarray:
-    """
-    Compute text embeddings for multiple texts.
-
-    Args:
-        text_amlnn: AMLNN instance for text model
-        tokenizer: CLIPTokenizer instance
-        texts (list): List of input text strings
-        max_len (int): Maximum sequence length
-
-    Returns:
-        np.ndarray: L2-normalized text embeddings with shape (num_texts, embed_dim)
-    """
+def compute_text_embeddings_batch(text_amlnn, tokenizer, texts, input_shape):
     embeddings = []
     for text in texts:
-        emb = compute_text_embedding(text_amlnn, tokenizer, text, max_len)
-        embeddings.append(emb[0])  # Remove batch dimension
-    return np.stack(embeddings, axis=0)  # [num_texts, embed_dim]
+        embeddings.append(compute_text_embedding(text_amlnn, tokenizer, text, input_shape)[0])
+    return np.stack(embeddings, axis=0)
 
-# ==================== Similarity Calculation ====================
 
-def compute_similarity(image_embedding: np.ndarray, text_embeddings: np.ndarray, logit_scale: float = 100.0) -> tuple:
-    """
-    Compute similarity between image and text embeddings.
+def compute_similarity(image_embedding, text_embeddings, logit_scale):
+    similarities = text_embeddings @ image_embedding[0]
+    logits = similarities * logit_scale
+    probabilities = softmax(logits, axis=0)
+    return similarities, logits, probabilities
 
-    Args:
-        image_embedding (np.ndarray): Image embedding with shape (1, embed_dim)
-        text_embeddings (np.ndarray): Text embeddings with shape (num_texts, embed_dim)
-        logit_scale (float): Scale factor for logits
-
-    Returns:
-        tuple: (similarities, logits, probabilities)
-    """
-    # Cosine similarity (embeddings are already L2-normalized)
-    sims = text_embeddings @ image_embedding[0]  # [num_texts]
-    logits = sims * logit_scale  # [num_texts]
-    probs = softmax(logits, axis=0)  # [num_texts]
-
-    return sims, logits, probs
-
-# ==================== Main Function ====================
 
 def main():
-    parser = argparse.ArgumentParser(description='CLIP Image-Text Matching Demo using AMLNN')
-    parser.add_argument('--text-model', required=True, help='Path to text model')
-    parser.add_argument('--vision-model', required=True, help='Path to vision model')
-    parser.add_argument('--tokenizer-dir', required=True, help='Path to CLIPTokenizer directory')
-    parser.add_argument('--image-path', default=None, help='Path to input image (optional, will prompt if not provided)')
-    parser.add_argument('--texts', nargs='+', default=None, help='List of text descriptions to compare')
-    parser.add_argument('--max-len', type=int, default=64, help='Maximum token sequence length (default: 64)')
-    parser.add_argument('--logit-scale', type=float, default=100.0, help='Logit scale factor (default: 100.0)')
-
+    parser = argparse.ArgumentParser(
+        description="CLIP Image-Text Matching Demo",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("--vision-model", required=True, help="Path to vision .adla model")
+    parser.add_argument("--text-model", required=True, help="Path to text .adla model")
+    parser.add_argument("--tokenizer-dir", required=True, help="Path to CLIPTokenizer directory")
+    parser.add_argument("--image-dir", required=True, help="Directory containing test images")
+    parser.add_argument(
+        "--texts",
+        nargs="+",
+        required=True,
+        help=(
+            "Text descriptions to compare against each image.\n"
+            "Separate descriptions with spaces and wrap multi-word descriptions in quotes.\n"
+            "Example:\n"
+            '  --texts "a red handbag" "a blue jacket" "a red bus"'
+        )
+    )
+    parser.add_argument("--logit-scale", type=float, default=100.0, help="Logit scale factor")
     args = parser.parse_args()
 
-    # Load tokenizer
-    print(f"[Info] Loading CLIPTokenizer from: {args.tokenizer_dir}")
+    print(f"Loading CLIPTokenizer from: {args.tokenizer_dir}")
     tokenizer = CLIPTokenizer.from_pretrained(args.tokenizer_dir)
 
-    # Initialize vision model
     vision_amlnn = AMLNN()
-
     vision_amlnn.init_runtime(mode="native", enable_perf=True)
-
-    vision_amlnn.load_model(path=args.vision_model_path)
-
+    vision_amlnn.load_model(path=args.vision_model)
     vision_tensor_info = vision_amlnn.get_tensor_info()
 
-    # Initialize text model
     text_amlnn = AMLNN()
-
     text_amlnn.init_runtime(mode="native", enable_perf=True)
-
-    text_amlnn.load_model(path=args.text_model_path)
-
+    text_amlnn.load_model(path=args.text_model)
     text_tensor_info = text_amlnn.get_tensor_info()
 
-    print("[Info] Models initialized successfully.\n")
+    print(vision_amlnn.get_sdk_version())
 
-    try:
-        # Interactive loop
-        while True:
-            # Get image path
-            if args.image_path:
-                image_path = args.image_path
-                args.image_path = None  # Clear for next iteration
-            else:
-                print("=" * 60)
-                print("[Info] Image Path (or 'exit' to quit):")
-                image_path = input().strip()
+    vision_attr = vision_tensor_info["inputs"][0]
+    vision_input_h = int(vision_attr["dims"][1])
+    vision_input_w = int(vision_attr["dims"][2])
+    vision_input_shape = (vision_input_h, vision_input_w)
+    vision_scale = float(vision_attr["scale"])
+    vision_zero_point = int(vision_attr["zp"])
+    vision_tensor_type = int(vision_attr["type"])
 
-            # Check for exit
-            if image_path.lower() == 'exit':
-                print("[Info] Exiting...")
-                break
+    text_attr = text_tensor_info["inputs"][0]
+    text_input_shape = tuple(int(value) for value in text_attr["dims"])
+    if text_input_shape[-1] != MAX_TEXT_LENGTH:
+        raise ValueError(f"CLIP text model expects sequence length {text_input_shape[-1]}, but MAX_TEXT_LENGTH is {MAX_TEXT_LENGTH}")
 
-            # Validate image path
-            if not image_path:
-                print("[Warning] Please enter an image path.")
-                continue
+    text_embeddings = compute_text_embeddings_batch(text_amlnn, tokenizer, args.texts, text_input_shape)
+    print(f"Text embeddings shape: {text_embeddings.shape}")
+    for text_idx, text in enumerate(args.texts):
+        embedding = text_embeddings[text_idx]
+        print(f"Text {text_idx}: '{text}', norm={np.linalg.norm(embedding):.6f}, min={embedding.min():.6f}, max={embedding.max():.6f}")
 
-            if not os.path.exists(image_path):
-                print(f"[Error] Image not found: {image_path}")
-                continue
+    image_files = []
+    for extension in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension)))
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension.upper())))
+    image_files.sort()
 
-            # Get texts to compare
-            if args.texts:
-                texts = args.texts
-                args.texts = None  # Clear for next iteration
-            else:
-                print("[Info] Enter text descriptions (comma-separated, or 'skip' to use defaults):")
-                text_input = input().strip()
-
-                if text_input.lower() == 'skip' or not text_input:
-                    # Default texts for demo
-                    texts = [
-                        "a red handbag",
-                        "a blue jacket",
-                        "a red bus",
-                    ]
-                    print(f"[Info] Using default texts: {texts}")
-                else:
-                    texts = [t.strip() for t in text_input.split(',') if t.strip()]
-
-            if not texts:
-                print("[Warning] No texts provided.")
-                continue
-
-            try:
-                # Compute image embedding
-                vision_tensor_attr = vision_tensor_info["inputs"][0]
-                vision_tensor_type = int(vision_tensor_attr["type"])
-                print(f"\n[Info] Processing image: {image_path}")
-                image_embedding = compute_image_embedding(vision_amlnn, image_path, tensor_type=vision_tensor_type)
-                print(f"[Info] Image embedding shape: {image_embedding.shape}")
-
-                # Compute text embeddings
-                print(f"[Info] Processing {len(texts)} text(s)...")
-                text_embeddings = compute_text_embeddings_batch(text_amlnn, tokenizer, texts, args.max_len)
-                print(f"[Info] Text embeddings shape: {text_embeddings.shape}")
-
-                # Compute similarity
-                sims, logits, probs = compute_similarity(image_embedding, text_embeddings, args.logit_scale)
-
-                # Print results
-                print("\n" + "=" * 60)
-                print("CLIP Image-Text Matching Results")
-                print("=" * 60)
-                print(f"Image: {image_path}")
-                print(f"logit_scale: {args.logit_scale:.6f}")
-                print("-" * 60)
-
-                # Sort by probability (descending)
-                sorted_indices = np.argsort(probs)[::-1]
-                for rank, i in enumerate(sorted_indices):
-                    print(f"[{rank + 1}] prob={probs[i]:.6f}  sim={float(sims[i]):.6f}  text='{texts[i]}'")
-
-                print("=" * 60 + "\n")
-
-            except Exception as e:
-                print(f"[Error] Processing failed: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-
-    except KeyboardInterrupt:
-        print("\n\n[Info] Interrupted by user. Exiting...")
-
-    finally:
-        # Cleanup
+    if not image_files:
+        print(f"No image files found in {args.image_dir}")
         vision_amlnn.uninit()
         text_amlnn.uninit()
+        return 0
 
-    print("[Info] Done.")
+    print(f"Found {len(image_files)} image file(s) to process:")
+    for image_file in image_files:
+        print(f"  - {os.path.basename(image_file)}")
+    print()
+
+    for image_idx, image_path in enumerate(image_files, 1):
+        print("=" * 60)
+        print(f"Processing image {image_idx}/{len(image_files)}: {os.path.basename(image_path)}")
+        print("=" * 60)
+
+        try:
+            image_embedding = compute_image_embedding(vision_amlnn, image_path, vision_input_shape, vision_scale, vision_zero_point, vision_tensor_type)
+            similarities, logits, probabilities = compute_similarity(image_embedding, text_embeddings, args.logit_scale)
+            sorted_indices = np.argsort(probabilities)[::-1]
+
+            print(f"Image embedding shape: {image_embedding.shape}")
+            for rank, text_idx in enumerate(sorted_indices, 1):
+                print(f"  {rank}. probability={probabilities[text_idx]:.6f}, similarity={similarities[text_idx]:.6f}, text='{args.texts[text_idx]}'")
+        except Exception as error:
+            print(f"Error processing {os.path.basename(image_path)}: {error}")
+
+        print()
+
+    print("=" * 60)
+    print("Vision model performance:")
+    print(vision_amlnn.get_perf_info())
+    print("Text model performance:")
+    print(text_amlnn.get_perf_info())
+    vision_amlnn.perf_visualize()
+    text_amlnn.perf_visualize()
+    vision_amlnn.uninit()
+    text_amlnn.uninit()
     return 0
 
 if __name__ == "__main__":
-    import sys
-    sys.exit(main())
+    main()

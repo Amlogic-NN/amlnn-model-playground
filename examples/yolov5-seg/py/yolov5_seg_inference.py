@@ -19,396 +19,340 @@ import os
 import glob
 import argparse
 import cv2
+import colorsys
 from pathlib import Path
 from amlnn.api import AMLNN
 
-# Preprocessing Constants
-MEAN = np.array([0, 0, 0], dtype=np.float32)
-STD  = np.array([255, 255, 255], dtype=np.float32)
+CLASS_NAMES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane',
+    'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird',
+    'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
+    'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
+    'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+    'wine glass', 'cup', 'fork', 'knife', 'spoon',
+    'bowl', 'banana', 'apple', 'sandwich', 'orange',
+    'broccoli', 'carrot', 'hot dog', 'pizza', 'doughnut',
+    'cake', 'chair', 'couch', 'potted plant', 'bed',
+    'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+    'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+    'toaster', 'sink', 'refrigerator', 'book', 'clock',
+    'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+]
 
-# YOLOv5 Anchors for 640x640 resolution
-ANCHORS = {
-    8:  np.array([[10, 13], [16, 30], [33, 23]], dtype=np.float32),
-    16: np.array([[30, 61], [62, 45], [59, 119]], dtype=np.float32),
-    32: np.array([[116, 90], [156, 198], [373, 326]], dtype=np.float32)
-}
+STRIDES = (8, 16, 32)
+ANCHORS = np.array([
+    [[10, 13], [16, 30], [33, 23]],
+    [[30, 61], [62, 45], [59, 119]],
+    [[116, 90], [156, 198], [373, 326]]
+], dtype=np.float32)
 
-# COCO 80 Classes
-class_names = {
-    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane',
-    5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light',
-    10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird',
-    15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow',
-    20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack',
-    25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee',
-    30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat',
-    35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle',
-    40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon',
-    45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange',
-    50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'doughnut',
-    55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed',
-    60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse',
-    65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven',
-    70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock',
-    75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
-}
+NUM_MASK_COEFFICIENTS = 32
 
-def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
+def letterbox(img, new_shape, color=(114, 114, 114)):
     shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
     new_unpad = (int(round(shape[1] * scale)), int(round(shape[0] * scale)))
-    pad_w = (new_shape[1] - new_unpad[0]) / 2
-    pad_h = (new_shape[0] - new_unpad[1]) / 2
 
     if shape[::-1] != new_unpad:
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
 
-    top, bottom = int(round(pad_h - 0.1)), int(round(pad_h + 0.1))
-    left, right = int(round(pad_w - 0.1)), int(round(pad_w + 0.1))
+    pad_h = new_shape[0] - new_unpad[1]
+    pad_w = new_shape[1] - new_unpad[0]
+    top = pad_h // 2
+    bottom = pad_h - top
+    left = pad_w // 2
+    right = pad_w - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
-
     return img, scale, (left, top)
 
-
-def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.003789, zp=-128, tensor_type=2):
+def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     original_img = cv2.imread(str(img_path))
     if original_img is None:
         raise ValueError(f"can't read image: {img_path}")
 
-    processed_img, scale, pad = letterbox(original_img, new_shape)
+    processed_img, resize_scale, pad = letterbox(original_img, new_shape)
     rgb_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
+    normalized_img = rgb_img.astype(np.float32) / 255.0
 
-    # Apply YOLOv5 Standard Normalization
-    normalized_img = (rgb_img.astype(np.float32) - MEAN) / STD
-
-    if data_format == 'NCHW':
-        input_tensor = np.transpose(normalized_img, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-    elif data_format == 'NHWC':
-        input_tensor = np.expand_dims(normalized_img, axis=0)
+    # Quantize with the input tensor metadata and saturate to its real range.
+    if tensor_type == 0:
+        input_tensor = normalized_img
     else:
-        raise ValueError(f"Unsupported data format: {data_format}.")
-
-    if tensor_type in [2, 3, 4]:
-        val = np.round(input_tensor / s + zp)
+        raw_value = np.round(normalized_img / scale + zero_point)
         if tensor_type == 2:
-            input_tensor = np.clip(val, -128, 127).astype(np.int8)
+            input_tensor = np.clip(raw_value, -128, 127).astype(np.int8)
         elif tensor_type == 3:
-            input_tensor = np.clip(val, 0, 255).astype(np.uint8)
+            input_tensor = np.clip(raw_value, 0, 255).astype(np.uint8)
         elif tensor_type == 4:
-            input_tensor = np.clip(val, -32768, 32767).astype(np.int16)
+            input_tensor = np.clip(raw_value, -32768, 32767).astype(np.int16)
+        else:
+            raise ValueError(f"Unsupported tensor type: {tensor_type}")
 
-    return input_tensor, original_img, scale, pad
+    return np.expand_dims(input_tensor, axis=0), original_img, resize_scale, pad
 
+def sigmoid(values):
+    return 1.0 / (1.0 + np.exp(-np.clip(values, -80.0, 80.0)))
 
-def postprocess(outputs, scale, pad, data_format='NHWC', strides=[8, 16, 32], conf_threshold=0.25, iou_threshold=0.45):
+def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold):
+    input_h, input_w = input_shape
+    values_per_anchor = 5 + len(CLASS_NAMES) + NUM_MASK_COEFFICIENTS
+    expected_channels = 3 * values_per_anchor
+    safe_threshold = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
+    inverse_threshold = np.log(safe_threshold / (1.0 - safe_threshold))
     all_boxes = []
     all_scores = []
     all_class_ids = []
-    all_mask_coeffs = []
+    all_mask_coefficients = []
 
-    # Calculate inverse sigmoid threshold for early stopping
-    safe_thresh = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
-    inv_thresh = np.log(safe_thresh / (1.0 - safe_thresh))
+    # Each NHWC cell contains three anchors with 117 values per anchor.
+    for output_idx, stride in enumerate(STRIDES):
+        output = np.asarray(outputs[output_idx])
+        grid_h = input_h // stride
+        grid_w = input_w // stride
+        expected_shape = (1, grid_h, grid_w, expected_channels)
+        if output.shape != expected_shape:
+            raise ValueError(
+                f"Unexpected stride-{stride} output shape: {output.shape}; "
+                f"expected {expected_shape}"
+            )
 
-    # 1. Dynamically Separate BBox Outputs & Prototype Mask Output
-    bbox_outputs = []
-    proto_mask = None
-    
-    for out in outputs:
-        out_sq = np.squeeze(out)
-        # BBox arrays will have a dimension of 351 (3 anchors * 117 features)
-        if 351 in out_sq.shape:
-            bbox_outputs.append(out_sq)
-        # Prototype Mask array will be 32x160x160
-        elif 32 in out_sq.shape and 160 in out_sq.shape:
-            proto_mask = out_sq
+        predictions = output[0].reshape(grid_h * grid_w, 3, values_per_anchor)
+        objectness_logits = predictions[:, :, 4]
+        candidate_cells, candidate_anchors = np.where(objectness_logits > inverse_threshold)
+        if len(candidate_cells) == 0:
+            continue
 
-    # Ensure proto_mask format is (32, 160, 160) for tensordot
-    if proto_mask.shape[0] != 32:
-        proto_mask = proto_mask.transpose(2, 0, 1)
-
-    # Sort bbox tensors by their spatial resolution (descending: 80x80 -> 40x40 -> 20x20)
-    # This guarantees they perfectly match strides [8, 16, 32]
-    def get_spatial_dim(t):
-        dims = [d for d in t.shape if d != 351]
-        return dims[0] if dims else 0
-    bbox_outputs.sort(key=get_spatial_dim, reverse=True)
-
-    # 2. Iterate Bbox Outputs
-    for scale_idx, out in enumerate(bbox_outputs):
-        stride = strides[scale_idx]
-        anchors = ANCHORS[stride]
-
-        if data_format == 'NCHW' or out.shape[0] == 351:
-            channels, height, width = out.shape
-            out_reshaped = out.transpose(1, 2, 0).reshape(-1, 3, 117)
-        elif data_format == 'NHWC' or out.shape[-1] == 351:
-            height, width, channels = out.shape
-            out_reshaped = out.reshape(-1, 3, 117)
-        else:
-            raise ValueError("Unexpected bounding box tensor format.")
-
-        # 2a. Compare raw objectness logits to inverse sigmoid threshold
-        obj_preds = out_reshaped[..., 4]
-        valid_mask = obj_preds > inv_thresh
-
+        candidates = predictions[candidate_cells, candidate_anchors]
+        class_probabilities = sigmoid(candidates[:, 5:5 + len(CLASS_NAMES)])
+        class_ids = np.argmax(class_probabilities, axis=1)
+        class_scores = class_probabilities[np.arange(len(candidates)), class_ids]
+        scores = sigmoid(candidates[:, 4]) * class_scores
+        valid_mask = scores > conf_threshold
         if not np.any(valid_mask):
             continue
 
-        # 2b. Extract valid cells
-        valid_cells = out_reshaped[valid_mask]
-        grid_indices, anchor_indices = np.where(valid_mask)
+        candidates = candidates[valid_mask]
+        cell_indices = candidate_cells[valid_mask]
+        anchor_indices = candidate_anchors[valid_mask]
+        scores = scores[valid_mask]
+        class_ids = class_ids[valid_mask]
 
-        # Apply sigmoid ONLY to bbox, objectness, and class probability logits (Elements 0-85). 
-        # Leave Mask Coefficients (Elements 85-117) untouched.
-        valid_cells_sigmoid = 1.0 / (1.0 + np.exp(-valid_cells[:, :85]))
-        valid_mask_coef = valid_cells[:, 85:]
+        grid_x = (cell_indices % grid_w).astype(np.float32)
+        grid_y = (cell_indices // grid_w).astype(np.float32)
+        box_values = sigmoid(candidates[:, :4])
+        center_x = (box_values[:, 0] * 2.0 - 0.5 + grid_x) * stride
+        center_y = (box_values[:, 1] * 2.0 - 0.5 + grid_y) * stride
+        anchor_values = ANCHORS[output_idx, anchor_indices]
+        width = np.square(box_values[:, 2] * 2.0) * anchor_values[:, 0]
+        height = np.square(box_values[:, 3] * 2.0) * anchor_values[:, 1]
 
-        valid_tx_ty = valid_cells_sigmoid[:, 0:2]
-        valid_tw_th = valid_cells_sigmoid[:, 2:4]
-        valid_obj = valid_cells_sigmoid[:, 4]
-        valid_cls = valid_cells_sigmoid[:, 5:]
-
-        # 2c. Calculate final scores
-        class_scores = np.max(valid_cls, axis=1)
-        class_ids = np.argmax(valid_cls, axis=1)
-        scores = valid_obj * class_scores
-
-        # Secondary filter for combined score
-        score_mask = scores > conf_threshold
-        if not np.any(score_mask):
-            continue
-
-        valid_tx_ty = valid_tx_ty[score_mask]
-        valid_tw_th = valid_tw_th[score_mask]
-        scores = scores[score_mask]
-        class_ids = class_ids[score_mask]
-        valid_mask_coef = valid_mask_coef[score_mask]
-        grid_indices = grid_indices[score_mask]
-        anchor_indices = anchor_indices[score_mask]
-
-        # 2d. Generate grid & Bounding Box Decoding
-        grid_y = (grid_indices // width).astype(np.float32)
-        grid_x = (grid_indices % width).astype(np.float32)
-        valid_anchors = anchors[anchor_indices]
-
-        bx_by = (valid_tx_ty * 2.0 - 0.5 + np.stack([grid_x, grid_y], axis=1)) * stride
-        bw_bh = (valid_tw_th * 2.0) ** 2 * valid_anchors
-
-        x1 = bx_by[:, 0] - bw_bh[:, 0] / 2
-        y1 = bx_by[:, 1] - bw_bh[:, 1] / 2
-        x2 = bx_by[:, 0] + bw_bh[:, 0] / 2
-        y2 = bx_by[:, 1] + bw_bh[:, 1] / 2
-        
-        boxes = np.stack([x1, y1, x2, y2], axis=1)
-
-        all_boxes.append(boxes)
+        x1 = center_x - width * 0.5
+        y1 = center_y - height * 0.5
+        x2 = center_x + width * 0.5
+        y2 = center_y + height * 0.5
+        all_boxes.append(np.stack([x1, y1, x2, y2], axis=1))
         all_scores.append(scores)
         all_class_ids.append(class_ids)
-        all_mask_coeffs.append(valid_mask_coef)
+        all_mask_coefficients.append(candidates[:, 5 + len(CLASS_NAMES):].copy())
+
+    prototype_mask = np.asarray(outputs[3])
+    if prototype_mask.shape != (1, 160, 160, NUM_MASK_COEFFICIENTS):
+        raise ValueError(f"Unexpected prototype output shape: {prototype_mask.shape}")
+    prototype_mask = prototype_mask[0]
 
     if not all_boxes:
-        return [], proto_mask
+        return [], prototype_mask
 
-    # Merge all scales
-    valid_boxes = np.concatenate(all_boxes, axis=0)
-    valid_scores = np.concatenate(all_scores, axis=0)
-    valid_class_ids = np.concatenate(all_class_ids, axis=0)
-    valid_mask_coeffs = np.concatenate(all_mask_coeffs, axis=0)
+    boxes = np.concatenate(all_boxes, axis=0)
+    scores = np.concatenate(all_scores, axis=0)
+    class_ids = np.concatenate(all_class_ids, axis=0)
+    mask_coefficients = np.concatenate(all_mask_coefficients, axis=0)
 
-    # Map coordinates back to original image scaling & padding
+    # Undo letterbox padding and scaling before class-aware NMS.
     pad_x, pad_y = pad
-    valid_boxes[:, [0, 2]] = (valid_boxes[:, [0, 2]] - pad_x) / scale
-    valid_boxes[:, [1, 3]] = (valid_boxes[:, [1, 3]] - pad_y) / scale
-    valid_boxes = np.maximum(valid_boxes, 0)
+    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale
+    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale
+    boxes = np.maximum(boxes, 0.0)
+    boxes_xywh = boxes.copy()
+    boxes_xywh[:, 2] = boxes[:, 2] - boxes[:, 0]
+    boxes_xywh[:, 3] = boxes[:, 3] - boxes[:, 1]
 
-    # 3. EXACT PER-CLASS NMS
-    detections = []
-    unique_classes = np.unique(valid_class_ids)
-
-    for c in unique_classes:
-        class_mask = valid_class_ids == c
-        c_boxes = valid_boxes[class_mask]
-        c_scores = valid_scores[class_mask]
-        c_mask_coeffs = valid_mask_coeffs[class_mask]
-
-        # Convert to XYWH specifically for OpenCV's NMS
-        c_widths = c_boxes[:, 2] - c_boxes[:, 0]
-        c_heights = c_boxes[:, 3] - c_boxes[:, 1]
-        c_boxes_xywh = np.stack([c_boxes[:, 0], c_boxes[:, 1], c_widths, c_heights], axis=1)
-
+    selected_indices = []
+    for class_id in np.unique(class_ids):
+        class_indices = np.where(class_ids == class_id)[0]
         nms_indices = cv2.dnn.NMSBoxes(
-            c_boxes_xywh.tolist(), c_scores.tolist(), conf_threshold, iou_threshold
+            boxes_xywh[class_indices].tolist(), scores[class_indices].tolist(),
+            conf_threshold, iou_threshold
         )
-
         if len(nms_indices) > 0:
-            nms_indices = nms_indices.flatten()
-            for idx in nms_indices:
-                bx1, by1, bx2, by2 = c_boxes[idx]
-                detections.append({
-                    'bbox': [float(bx1), float(by1), float(bx2), float(by2)],
-                    'confidence': float(c_scores[idx]),
-                    'class_id': int(c),
-                    'class_name': class_names.get(int(c), f'class_{int(c)}'),
-                    'mask_coeff': c_mask_coeffs[idx].tolist()
-                })
+            selected_indices.extend(class_indices[nms_indices.flatten()].tolist())
 
-    return detections, proto_mask
+    selected_indices.sort(key=lambda index: float(scores[index]), reverse=True)
+    detections = []
+    for index in selected_indices:
+        class_id = int(class_ids[index])
+        detections.append({
+            'bbox': boxes[index].tolist(),
+            'confidence': float(scores[index]),
+            'class_id': class_id,
+            'class_name': CLASS_NAMES[class_id],
+            'mask_coefficients': mask_coefficients[index].copy()
+        })
+    return detections, prototype_mask
 
-
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-def draw_mask(img, mask_coeff, proto_mask, scale, pad, color, alpha=0.5):
-    """
-    Draws segmentation mask on the image dynamically
-    """
-    orig_h, orig_w = img.shape[:2]
+def draw_mask(img, mask_coefficients, prototype_mask, bbox, input_shape, scale, pad, color, alpha):
+    original_h, original_w = img.shape[:2]
+    input_h, input_w = input_shape
     pad_x, pad_y = pad
 
-    # 1. Build raw mask from prototypes
-    mask = np.tensordot(mask_coeff, proto_mask, axes=1)
+    # Contract the 32 coefficients against the NHWC prototype channels.
+    mask = np.tensordot(prototype_mask, mask_coefficients, axes=([2], [0]))
     mask = sigmoid(mask)
+    mask_input = cv2.resize(mask, (input_w, input_h), interpolation=cv2.INTER_LINEAR)
 
-    # 2. Upscale mask to the model input size (640x640)
-    input_size = 640
-    mask_640 = cv2.resize(mask, (input_size, input_size), interpolation=cv2.INTER_LINEAR)
+    resized_w = int(round(original_w * scale))
+    resized_h = int(round(original_h * scale))
+    crop_x1 = int(pad_x)
+    crop_y1 = int(pad_y)
+    crop_x2 = min(input_w, crop_x1 + resized_w)
+    crop_y2 = min(input_h, crop_y1 + resized_h)
+    mask_cropped = mask_input[crop_y1:crop_y2, crop_x1:crop_x2]
+    if mask_cropped.size == 0:
+        return img
 
-    # 3. Crop out the letterbox padding
-    y1, y2 = int(pad_y), int(input_size - pad_y)
-    x1, x2 = int(pad_x), int(input_size - pad_x)
-
-    y1, y2 = max(0, y1), min(input_size, y2)
-    x1, x2 = max(0, x1), min(input_size, x2)
-
-    mask_cropped = mask_640[y1:y2, x1:x2]
-
-    # 4. Resize to match original image dimensions
-    final_mask = cv2.resize(mask_cropped, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
-
-    # 5. Create Boolean mask (Values > 0.5 object area, < 0.5 background)
+    final_mask = cv2.resize(mask_cropped, (original_w, original_h), interpolation=cv2.INTER_LINEAR)
     binary_mask = final_mask > 0.5
 
-    # 6. Create color overlay and blend
-    colored_mask = np.zeros_like(img, dtype=np.uint8)
-    colored_mask[binary_mask] = color 
+    # Prevent each prototype reconstruction from spilling outside its retained box.
+    box_x1 = max(0, int(np.floor(bbox[0])))
+    box_y1 = max(0, int(np.floor(bbox[1])))
+    box_x2 = min(original_w, int(np.ceil(bbox[2])))
+    box_y2 = min(original_h, int(np.ceil(bbox[3])))
+    bbox_mask = np.zeros((original_h, original_w), dtype=bool)
+    if box_x2 > box_x1 and box_y2 > box_y1:
+        bbox_mask[box_y1:box_y2, box_x1:box_x2] = True
+    binary_mask &= bbox_mask
 
-    blended = cv2.addWeighted(img, 1.0, colored_mask, alpha, 0)
+    if not np.any(binary_mask):
+        return img
+    colored_mask = np.zeros_like(img, dtype=np.uint8)
+    colored_mask[binary_mask] = color
+    blended = cv2.addWeighted(img, 1.0 - alpha, colored_mask, alpha, 0)
     result = img.copy()
     result[binary_mask] = blended[binary_mask]
-
     return result
 
-
-def get_class_color(class_id):
-    import colorsys
+def get_class_color_and_text_color(class_id):
     hue = (class_id * 137.508) % 360
-    rgb = colorsys.hsv_to_rgb(hue/360.0, 0.8, 0.9)
-    bgr = (int(rgb[2]*255), int(rgb[1]*255), int(rgb[0]*255))
-    return bgr
+    rgb = colorsys.hsv_to_rgb(hue / 360.0, 0.8, 0.9)
+    bgr = (int(rgb[2] * 255), int(rgb[1] * 255), int(rgb[0] * 255))
+    text_color = (255, 255, 255) if sum(bgr) < 400 else (0, 0, 0)
+    return bgr, text_color
 
-
-def draw_detections(img, detections, proto_mask, scale, pad, save_path):
+def draw_detections(img, detections, prototype_mask, input_shape, scale, pad, mask_alpha, save_path=None):
     result_img = img.copy()
 
-    print(f"    Drawing {len(detections)} detections")
-    for i, det in enumerate(detections):
-        x1, y1, x2, y2 = [int(coord) for coord in det['bbox']]
-        class_id = det['class_id']
-        class_name = det['class_name']
-        confidence = det['confidence']
-        mask_coeff = det['mask_coeff']
+    # Draw masks first so boxes and labels remain visible.
+    for detection in detections:
+        color, _ = get_class_color_and_text_color(detection['class_id'])
+        result_img = draw_mask(
+            result_img, detection['mask_coefficients'], prototype_mask,
+            detection['bbox'], input_shape, scale, pad, color, mask_alpha
+        )
 
-        print(f"      {i+1}. {class_name} ({confidence:.2f}) -> [{x1}, {y1}, {x2}, {y2}]")
-
-        color = get_class_color(class_id)
-
-        # Draw Bounding Box
+    for detection in detections:
+        x1, y1, x2, y2 = [int(value) for value in detection['bbox']]
+        color, text_color = get_class_color_and_text_color(detection['class_id'])
+        label = f"{detection['class_name']}: {detection['confidence']:.2f}"
         cv2.rectangle(result_img, (x1, y1), (x2, y2), color, 2)
-
-        # Draw Label
-        label = f"{class_name} {confidence:.2f}"
         (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
-        cv2.rectangle(result_img, (x1, y1 - label_h - 10), (x1 + label_w, y1), color, -1)
-        text_color = (255, 255, 255) if sum(color) < 400 else (0, 0, 0)
-        cv2.putText(result_img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
+        label_x = max(0, x1)
+        label_y = max(y1, label_h + 10)
+        cv2.rectangle(result_img, (label_x, label_y - label_h - 10), (label_x + label_w, label_y), color, cv2.FILLED)
+        cv2.putText(result_img, label, (label_x, label_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1, cv2.LINE_AA)
 
-        # Draw segmentation mask iteratively
-        result_img = draw_mask(result_img, mask_coeff, proto_mask, scale, pad, color=color)
-
-    cv2.imwrite(save_path, result_img)
-    print(f"    Image saved to: {save_path}")
+    if save_path:
+        cv2.imwrite(save_path, result_img)
     return result_img
 
-
 def main():
-    parser = argparse.ArgumentParser(description="Yolov5-Seg Demo")
+    parser = argparse.ArgumentParser(description='YOLOv5-Seg Demo')
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
+    parser.add_argument('--conf', type=float, default=0.3)
+    parser.add_argument('--nms', type=float, default=0.45)
+    parser.add_argument('--mask-alpha', type=float, default=0.5)
     args = parser.parse_args()
 
     amlnn = AMLNN()
-    amlnn.init_runtime(mode="native", enable_perf=True)
+    amlnn.init_runtime(mode='native', enable_perf=True)
     amlnn.load_model(path=args.model_path)
-
     tensor_info = amlnn.get_tensor_info()
     print(amlnn.get_sdk_version())
 
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
     image_files = []
-    for ext in image_extensions:
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
-    image_files.sort()
+    for extension in ('*.jpg', '*.jpeg', '*.png', '*.bmp'):
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension)))
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension.upper())))
 
     if not image_files:
         print(f"No image files found in {args.image_dir}")
         amlnn.uninit()
         return 0
 
-    print(f"Found {len(image_files)} image file(s) to process.")
-    print()
+    tensor_attr = tensor_info['inputs'][0]
+    input_h = int(tensor_attr['dims'][1])
+    input_w = int(tensor_attr['dims'][2])
+    input_shape = (input_h, input_w)
+    input_scale = float(tensor_attr['scale'])
+    input_zero_point = int(tensor_attr['zp'])
+    tensor_type = int(tensor_attr['type'])
 
-    tensor_attr = tensor_info["inputs"][0]
-    s = float(tensor_attr["scale"])
-    zp = int(tensor_attr["zp"])
-    tensor_type = int(tensor_attr["type"])
-    
-    model_stem = Path(args.model_path).stem
-    result_dir = f"{model_stem}_result"
-    os.makedirs(result_dir, exist_ok=True)
-
-    for i, image_path in enumerate(image_files, 1):
-        print(f"=" * 60)
-        print(f"Processing image {i}/{len(image_files)}: {os.path.basename(image_path)}")
-        print(f"=" * 60)
+    for image_idx, image_path in enumerate(image_files, 1):
+        print('=' * 60)
+        print(f"Processing image {image_idx}/{len(image_files)}: {os.path.basename(image_path)}")
+        print('=' * 60)
 
         try:
-            input_tensor, original_img, scale, pad = preprocess(
-                image_path, new_shape=(640, 640), data_format='NHWC', s=s, zp=zp, tensor_type=tensor_type
+            input_tensor, original_img, resize_scale, pad = preprocess(
+                image_path, input_shape, input_scale, input_zero_point, tensor_type
+            )
+            outputs = amlnn.inference(inputs=[input_tensor])
+            detections, prototype_mask = postprocess(
+                outputs, input_shape, resize_scale, pad, args.conf, args.nms
             )
 
-            outputs = amlnn.inference(inputs=[input_tensor])
+            if detections:
+                print(f"    Detected {len(detections)} objects:")
+                for detection_idx, detection in enumerate(detections, 1):
+                    print(
+                        f"      {detection_idx}. {detection['class_name']} "
+                        f"({detection['confidence']:.2f})"
+                    )
+            else:
+                print("    No objects detected")
 
-            # Apply Confidence & IOU settings
-            detections, proto_mask = postprocess(outputs, scale, pad, data_format='NHWC', conf_threshold=0.5, iou_threshold=0.45)
-
-            img_name = Path(image_path).stem
-            save_path = os.path.join(result_dir, f"{img_name}_result.jpg")
-
-            draw_detections(original_img, detections, proto_mask, scale, pad, str(save_path))
-
-        except Exception as e:
-            print(f"Error processing {os.path.basename(image_path)}: {e}")
+            result_dir = f"{Path(args.model_path).stem}_result"
+            os.makedirs(result_dir, exist_ok=True)
+            save_path = os.path.join(result_dir, f"{Path(image_path).stem}_result.jpg")
+            draw_detections(
+                original_img, detections, prototype_mask, input_shape,
+                resize_scale, pad, args.mask_alpha, save_path
+            )
+            print(f"Result saved to: {save_path}")
+        except Exception as error:
+            print(f"Error processing {os.path.basename(image_path)}: {error}")
 
         print()
-        
-    print(f"=" * 60)
+
+    print("=" * 60)
     print(amlnn.get_perf_info())
     amlnn.perf_visualize()
     amlnn.uninit()
+    return 0
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

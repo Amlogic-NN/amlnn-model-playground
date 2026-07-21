@@ -13,170 +13,154 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "model_invoke.h"
-#include <iostream>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <iostream>
+#include "nnsdk2.h"
+#include "model_loader.h"
 
-// Helper: Robust Image Input Preparation
-static std::vector<uint8_t> prepare_input_tensor(const std::vector<float> &float_img, const amlnn_tensor_attr &attr)
-{
-    std::vector<uint8_t> tensor_data;
-    if (float_img.empty())
-    {
-        std::cerr << "prepare_input_tensor: Invalid input image data" << std::endl;
-        return tensor_data;
-    }
-
-    int total_elements = float_img.size();
-    const float *src_ptr = float_img.data();
-
-    // FP16 uses float32 input in this hardware, so we treat it identically to FLOAT32
-    if (attr.type == AMLNN_TENSOR_FLOAT32 || attr.type == AMLNN_TENSOR_FLOAT16)
-    {
-        tensor_data.resize(total_elements * sizeof(float));
-        std::memcpy(tensor_data.data(), src_ptr, tensor_data.size());
-    }
-    else if (attr.type == AMLNN_TENSOR_INT16)
-    {
-        tensor_data.resize(total_elements * sizeof(int16_t));
-        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
-        for (int i = 0; i < total_elements; ++i)
-        {
-            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
-            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, val)));
-        }
-    }
-    else if (attr.type == AMLNN_TENSOR_INT8)
-    {
-        tensor_data.resize(total_elements * sizeof(int8_t));
-        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
-        for (int i = 0; i < total_elements; ++i)
-        {
-            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
-            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, val)));
-        }
-    }
-    else if (attr.type == AMLNN_TENSOR_UINT8)
-    {
-        tensor_data.resize(total_elements * sizeof(uint8_t));
-        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
-        for (int i = 0; i < total_elements; ++i)
-        {
-            float val = std::round(src_ptr[i] / attr.scale) + attr.zp;
-            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, val)));
-        }
-    }
-    else
-    {
-        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
-    }
-
-    return tensor_data;
-}
-
-// Helper: Text Input Preparation (Handles INT64 to INT32 downcasting)
-static std::vector<uint8_t> prepare_text_tensor(const std::vector<int64_t> &input_data, const amlnn_tensor_attr &attr)
+static std::vector<uint8_t> prepare_input_tensor(const std::vector<float> &input_data, const amlnn_tensor_attr &attr)
 {
     std::vector<uint8_t> tensor_data;
     if (input_data.empty())
         return tensor_data;
 
-    int total_elements = input_data.size();
+    size_t total_elements = input_data.size();
 
-    if (attr.type == AMLNN_TENSOR_INT32)
+    // FP16 models use float32 host input with this runtime.
+    if (attr.type == AMLNN_TENSOR_FLOAT32 || attr.type == AMLNN_TENSOR_FLOAT16)
     {
-        tensor_data.resize(total_elements * sizeof(int32_t));
-        int32_t *dst_ptr = reinterpret_cast<int32_t *>(tensor_data.data());
-        for (int i = 0; i < total_elements; ++i)
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), input_data.data(), tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        for (size_t i = 0; i < total_elements; ++i)
         {
-            dst_ptr[i] = static_cast<int32_t>(input_data[i]);
+            float quantized = std::round(input_data[i] / attr.scale + attr.zp);
+            int16_t value = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, quantized)));
+            std::memcpy(tensor_data.data() + i * sizeof(int16_t), &value, sizeof(int16_t));
         }
     }
-    else if (attr.type == AMLNN_TENSOR_INT64)
+    else if (attr.type == AMLNN_TENSOR_INT8)
     {
-        tensor_data.resize(total_elements * sizeof(int64_t));
-        std::memcpy(tensor_data.data(), input_data.data(), tensor_data.size());
+        tensor_data.resize(total_elements);
+        for (size_t i = 0; i < total_elements; ++i)
+        {
+            float quantized = std::round(input_data[i] / attr.scale + attr.zp);
+            tensor_data[i] = static_cast<uint8_t>(static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, quantized))));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements);
+        for (size_t i = 0; i < total_elements; ++i)
+        {
+            float quantized = std::round(input_data[i] / attr.scale + attr.zp);
+            tensor_data[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, quantized)));
+        }
     }
     else
     {
-        // Fallback default to INT32 for text tokens
-        tensor_data.resize(total_elements * sizeof(int32_t));
-        int32_t *dst_ptr = reinterpret_cast<int32_t *>(tensor_data.data());
-        for (int i = 0; i < total_elements; ++i)
-        {
-            dst_ptr[i] = static_cast<int32_t>(input_data[i]);
-        }
+        std::cerr << "Unsupported image tensor type: " << attr.type << std::endl;
     }
+
     return tensor_data;
 }
 
-std::vector<float> run_image_model(void *qcontext, const std::vector<float> &input_data)
+static std::vector<uint8_t> prepare_text_tensor(const std::vector<int64_t> &input_ids, const amlnn_tensor_attr &attr)
 {
-    if (!qcontext || input_data.empty())
+    std::vector<uint8_t> tensor_data;
+    if (input_ids.empty())
+        return tensor_data;
+
+    size_t total_elements = input_ids.size();
+
+    if (attr.type == AMLNN_TENSOR_INT64)
+    {
+        tensor_data.resize(total_elements * sizeof(int64_t));
+        std::memcpy(tensor_data.data(), input_ids.data(), tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT32)
+    {
+        tensor_data.resize(total_elements * sizeof(int32_t));
+        for (size_t i = 0; i < total_elements; ++i)
+        {
+            int32_t value = static_cast<int32_t>(input_ids[i]);
+            std::memcpy(tensor_data.data() + i * sizeof(int32_t), &value, sizeof(int32_t));
+        }
+    }
+    else
+    {
+        std::cerr << "Unsupported text tensor type: " << attr.type << std::endl;
+    }
+
+    return tensor_data;
+}
+
+std::vector<float> run_image_model(void *context, const std::vector<float> &input_data)
+{
+    if (!context || input_data.empty())
         return {};
 
-    // 1. Query attributes using model_loader
-    amlnn_tensor_attr in_attr = query_input_attr(qcontext, 0);
-    amlnn_tensor_attr out_attr = query_output_attr(qcontext, 0);
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
+    amlnn_tensor_attr output_attr = query_output_attr(context, 0);
 
-    // 2. Prepare dynamic tensor formatting
-    std::vector<uint8_t> prepared_data = prepare_input_tensor(input_data, in_attr);
+    if (input_data.size() != input_attr.n_elems)
+    {
+        std::cerr << "image input element mismatch: expected " << input_attr.n_elems << ", got " << input_data.size() << std::endl;
+        return {};
+    }
+
+    std::vector<uint8_t> prepared_data = prepare_input_tensor(input_data, input_attr);
     if (prepared_data.empty())
         return {};
 
-    // 3. Run Inference using model_loader
-    std::vector<amlnn_output> outData(1); // 1 Output expected
-
-    if (!run_network(qcontext, prepared_data.data(), prepared_data.size(), outData))
+    std::vector<amlnn_output> outputs(1);
+    if (!run_network(context, prepared_data.data(), prepared_data.size(), outputs))
     {
         std::cerr << "Failed to run image network" << std::endl;
         return {};
     }
 
-    if (outData.empty() || outData[0].buf == nullptr)
+    if (outputs[0].buf == nullptr)
         return {};
 
-    // 4. Retrieve auto-dequantized Float32 output
-    float *output_ptr = reinterpret_cast<float *>(outData[0].buf);
-    size_t output_elements = out_attr.n_elems; // Pull exact size from output_attr
-
-    return std::vector<float>(output_ptr, output_ptr + output_elements);
+    float *output_ptr = reinterpret_cast<float *>(outputs[0].buf);
+    return std::vector<float>(output_ptr, output_ptr + output_attr.n_elems);
 }
 
-std::vector<float> run_text_model(void *qcontext, const std::vector<int64_t> &input_ids)
+std::vector<float> run_text_model(void *context, const std::vector<int64_t> &input_ids)
 {
-    if (!qcontext || input_ids.empty())
+    if (!context || input_ids.empty())
         return {};
 
-    // 1. Query attributes using model_loader
-    amlnn_tensor_attr in_attr_ids = query_input_attr(qcontext, 0);
-    amlnn_tensor_attr out_attr = query_output_attr(qcontext, 0);
+    amlnn_tensor_attr input_attr = query_input_attr(context, 0);
+    amlnn_tensor_attr output_attr = query_output_attr(context, 0);
 
-    // 2. Prepare tensors
-    std::vector<uint8_t> prepared_ids = prepare_text_tensor(input_ids, in_attr_ids);
+    if (input_ids.size() != input_attr.n_elems)
+    {
+        std::cerr << "Text input element mismatch: expected " << input_attr.n_elems << ", got " << input_ids.size() << std::endl;
+        return {};
+    }
 
+    std::vector<uint8_t> prepared_ids = prepare_text_tensor(input_ids, input_attr);
     if (prepared_ids.empty())
         return {};
 
-    std::vector<amlnn_output> outData(1); // 1 Output expected
-
-    if (!run_network(qcontext,
-                     prepared_ids.data(), prepared_ids.size(),
-                     outData))
+    std::vector<amlnn_output> outputs(1);
+    if (!run_network(context, prepared_ids.data(), prepared_ids.size(), outputs))
     {
         std::cerr << "Failed to run text network" << std::endl;
         return {};
     }
 
-    if (outData.empty() || outData[0].buf == nullptr)
+    if (outputs[0].buf == nullptr)
         return {};
 
-    // 4. Retrieve auto-dequantized Float32 output
-    float *output_ptr = reinterpret_cast<float *>(outData[0].buf);
-    size_t output_elements = out_attr.n_elems;
-
-    return std::vector<float>(output_ptr, output_ptr + output_elements);
+    float *output_ptr = reinterpret_cast<float *>(outputs[0].buf);
+    return std::vector<float>(output_ptr, output_ptr + output_attr.n_elems);
 }

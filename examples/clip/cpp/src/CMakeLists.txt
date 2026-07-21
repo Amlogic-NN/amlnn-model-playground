@@ -26,7 +26,7 @@ endif()
 add_executable(${PROJECT_NAME}
     main.cpp
     model_invoke.cpp
-    pre_postprocess.cpp
+    postprocess.cpp
     clip_tokenizer.cpp
     ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )

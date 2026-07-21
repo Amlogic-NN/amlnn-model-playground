@@ -53,8 +53,8 @@ Run the ADLA export script from `examples/resnet/py`:
 cd examples/resnet/py
 python export_adla.py \
   --onnx ../model/resnet50.onnx \
-  --dataset-path ../../../resource/COCO_subset.txt \
-  --target-platform 005 \
+  --dataset-path ../../../resource/classification_dataset.txt \
+  --target-platform 007 \
   --adla ../model
 ```
 

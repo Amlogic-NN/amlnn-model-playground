@@ -17,39 +17,40 @@
 #ifndef POSTPROCESS_H
 #define POSTPROCESS_H
 
-#include <vector>
-#include <string>
+#include <array>
+#include <cstdint>
 #include <tuple>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include "nnsdk2.h"
 
-struct Detection {
-    float x1, y1, x2, y2;
+constexpr int NUM_CLASSES = 80;
+constexpr int NUM_MASK_COEFFICIENTS = 32;
+
+struct Detection
+{
+    float x1;
+    float y1;
+    float x2;
+    float y2;
     float score;
     int class_id;
-    std::string class_name;
-    std::vector<float> mask_coeff; // Added for Segmentation
+    std::array<float, NUM_MASK_COEFFICIENTS> mask_coefficients;
 };
 
-// Extern for global access if needed
-extern const std::vector<std::string> COCO_CLASSES;
-
-std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
-
-std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
-
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point);
-
+std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr);
+std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(
+    cv::Mat img, std::tuple<int, int> new_shape);
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 std::vector<Detection> postprocess(
-    float *out0_data, const std::vector<int> &out0_shape,
-    float *out1_data, const std::vector<int> &out1_shape,
-    float *out2_data, const std::vector<int> &out2_shape,
+    const std::vector<float *> &out_ptrs,
+    const std::vector<std::vector<int>> &out_shapes,
+    int input_h, int input_w,
     std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
     float conf_thresh, float iou_threshold);
-
-// Updated signature for segmentation masks
-cv::Mat draw_detections(cv::Mat image, const std::vector<Detection>& detections,
-                        float* proto_mask_data, const std::vector<int>& proto_shape,
-                        float scale, std::tuple<int, int> pad);
+cv::Mat draw_detections(
+    cv::Mat image, const std::vector<Detection> &detections,
+    float *prototype_data, const std::vector<int> &prototype_shape,
+    int input_h, int input_w, float scale, std::tuple<int, int> pad, float alpha);
 
 #endif

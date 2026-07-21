@@ -22,279 +22,266 @@ import cv2
 from pathlib import Path
 from amlnn.api import AMLNN
 
-MEAN = np.array([0, 0, 0], dtype=np.float32)
-STD  = np.array([255, 255, 255], dtype=np.float32)
-
 KEYPOINT_NAMES = [
-    "nose","l_eye","r_eye","l_ear","r_ear",
-    "l_sh","r_sh","l_el","r_el","l_wr","r_wr",
-    "l_hip","r_hip","l_kn","r_kn","l_an","r_an"
+    'nose', 'left eye', 'right eye', 'left ear', 'right ear',
+    'left shoulder', 'right shoulder', 'left elbow', 'right elbow',
+    'left wrist', 'right wrist', 'left hip', 'right hip',
+    'left knee', 'right knee', 'left ankle', 'right ankle'
 ]
 
-# -----------------------------
-# Skeleton
-# -----------------------------
+# Standard COCO-17 pose connections using zero-based keypoint indices.
 SKELETON = [
-    (0,1),(0,2),
-    (1,3),(2,4),
-    (5,6),
-    (5,7),(7,9),
-    (6,8),(8,10),
-    (5,11),(6,12),
-    (11,12),
-    (11,13),(13,15),
-    (12,14),(14,16)
+    (15, 13), (13, 11), (16, 14), (14, 12), (11, 12),
+    (5, 11), (6, 12), (5, 6), (5, 7), (6, 8),
+    (7, 9), (8, 10), (1, 2), (0, 1), (0, 2),
+    (1, 3), (2, 4), (3, 5), (4, 6)
 ]
 
-def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
-    shape = img.shape[:2]  # [height, width]
+def letterbox(img, new_shape, color=(114, 114, 114)):
+    shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
     new_unpad = (int(round(shape[1] * scale)), int(round(shape[0] * scale)))
-    pad_w = (new_shape[1] - new_unpad[0]) / 2
-    pad_h = (new_shape[0] - new_unpad[1]) / 2
 
     if shape[::-1] != new_unpad:
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
 
-    top, bottom = int(round(pad_h - 0.1)), int(round(pad_h + 0.1))
-    left, right = int(round(pad_w - 0.1)), int(round(pad_w + 0.1))
+    pad_h = new_shape[0] - new_unpad[1]
+    pad_w = new_shape[1] - new_unpad[0]
+    top = pad_h // 2
+    bottom = pad_h - top
+    left = pad_w // 2
+    right = pad_w - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
-
     return img, scale, (left, top)
 
-def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.003789, zp=-128, tensor_type=2):
+def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     original_img = cv2.imread(str(img_path))
     if original_img is None:
         raise ValueError(f"can't read image: {img_path}")
 
-    processed_img, scale, pad = letterbox(original_img, new_shape)
+    processed_img, resize_scale, pad = letterbox(original_img, new_shape)
     rgb_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
-    normalized_img = rgb_img.astype(np.float32) / 255.0
+    rgb_float = rgb_img.astype(np.float32)
 
-    if data_format == 'NCHW':
-        input_tensor = np.transpose(normalized_img, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-    elif data_format == 'NHWC':
-        input_tensor = np.expand_dims(normalized_img, axis=0)
+    # Normalize float input or quantize with the model's scale and zero point.
+    if tensor_type == 0:
+        input_tensor = rgb_float / 255.0
+    elif tensor_type in (2, 3, 4):
+        inv_scale = np.float32(1.0 / (255.0 * scale))
+        raw_value = np.round(rgb_float * inv_scale + zero_point)
+
+        if tensor_type == 2:
+            input_tensor = np.clip(raw_value, -128, 127).astype(np.int8)
+        elif tensor_type == 3:
+            input_tensor = np.clip(raw_value, 0, 255).astype(np.uint8)
+        else:
+            input_tensor = np.clip(raw_value, -32768, 32767).astype(np.int16)
     else:
-        raise ValueError(f"Unsupported data format: {data_format}.")
+        raise ValueError(f"Does not support tensor type: {tensor_type}")
 
-    raw_val = np.round(input_tensor / s + zp)
-    if tensor_type == 2:
-        input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
-    elif tensor_type == 3:
-        input_tensor = np.clip(raw_val, 0, 255).astype(np.uint8)
+    input_tensor = np.expand_dims(input_tensor, axis=0)
+    return input_tensor, original_img, resize_scale, pad
 
-    return input_tensor, original_img, scale, pad
+def postprocess(outputs, scale, pad, conf_threshold, iou_threshold):
+    if len(outputs) != 4:
+        raise ValueError(f"Expected 4 YOLOv8-Pose outputs, got {len(outputs)}")
 
+    # Fixed decoded layouts: [4,N], [N], [N,17], and [2,N,17].
+    bboxes = np.squeeze(outputs[0]).T
+    confidences = np.squeeze(outputs[1])
+    keypoint_confidences = np.squeeze(outputs[2])
+    keypoints = np.squeeze(outputs[3]).transpose(1, 2, 0)
 
-def postprocess(outputs, scale, pad, data_format='NCHW', strides=[8, 16, 32], conf_threshold=0.25, iou_threshold=0.45):
-    # 1. Extract and shape properly
-    bboxes = np.squeeze(outputs[0])  # Shape: (4, 8400)
-    bboxes = bboxes.T            # Shape becomes: (8400, 4)
-    conf = np.squeeze(outputs[1])  # Shape: (8400,)
-    kpts_conf = np.squeeze(outputs[2])  # Shape: (8400, 17)
-    kpts_xy = np.squeeze(outputs[3])    # Shape: (2, 8400, 17)
-    kpts_xy = kpts_xy.transpose(1, 2, 0)  # Shape becomes: (8400, 17, 2)
+    num_predictions = bboxes.shape[0]
+    if bboxes.ndim != 2 or bboxes.shape[1] != 4:
+        raise ValueError(f"Unexpected bbox output shape: {outputs[0].shape}")
+    if confidences.ndim != 1 or confidences.shape[0] != num_predictions:
+        raise ValueError(f"Unexpected confidence output shape: {outputs[1].shape}")
+    if keypoint_confidences.shape != (num_predictions, len(KEYPOINT_NAMES)):
+        raise ValueError(f"Unexpected keypoint confidence shape: {outputs[2].shape}")
+    if keypoints.shape != (num_predictions, len(KEYPOINT_NAMES), 2):
+        raise ValueError(f"Unexpected keypoint coordinate shape: {outputs[3].shape}")
 
-    # 2. Filter out low confidence detections
-    mask = conf > conf_threshold
-
-    filtered_bboxes = bboxes[mask]
-    filtered_conf = conf[mask]
-    filtered_kpts_xy = kpts_xy[mask]
-    filtered_kpts_conf = kpts_conf[mask]
-
-    if len(filtered_bboxes) == 0:
+    valid_indices = np.where(confidences > conf_threshold)[0]
+    if len(valid_indices) == 0:
         return []
 
-    # 3. Process Bounding Boxes (cx, cy, w, h -> x1, y1, x2, y2)
-    cx, cy, w, h = filtered_bboxes[:, 0], filtered_bboxes[:, 1], filtered_bboxes[:, 2], filtered_bboxes[:, 3]
+    bboxes = bboxes[valid_indices]
+    confidences = confidences[valid_indices]
+    keypoints = keypoints[valid_indices].copy()
+    keypoint_confidences = keypoint_confidences[valid_indices]
 
+    # Convert decoded XYWH boxes and keypoints back to original-image coordinates.
     pad_x, pad_y = pad
-    x1 = (cx - w/2 - pad_x) / scale
-    y1 = (cy - h/2 - pad_y) / scale
-    x2 = (cx + w/2 - pad_x) / scale
-    y2 = (cy + h/2 - pad_y) / scale
-    w /= scale
-    h /= scale
+    center_x = bboxes[:, 0]
+    center_y = bboxes[:, 1]
+    width = bboxes[:, 2]
+    height = bboxes[:, 3]
+    x1 = (center_x - width / 2.0 - pad_x) / scale
+    y1 = (center_y - height / 2.0 - pad_y) / scale
+    x2 = (center_x + width / 2.0 - pad_x) / scale
+    y2 = (center_y + height / 2.0 - pad_y) / scale
+    boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
+    boxes_xywh = np.stack([x1, y1, width / scale, height / scale], axis=1)
 
-    boxes_xyxy_scaled = np.stack([x1, y1, x2, y2], axis=1)
-    boxes_xywh_scaled = np.stack([x1, y1, w, h], axis=1)
-    filtered_kpts_xy[:, :, 0] = (filtered_kpts_xy[:, :, 0] - pad_x) / scale
-    filtered_kpts_xy[:, :, 1] = (filtered_kpts_xy[:, :, 1] - pad_y) / scale
+    keypoints[:, :, 0] = (keypoints[:, :, 0] - pad_x) / scale
+    keypoints[:, :, 1] = (keypoints[:, :, 1] - pad_y) / scale
 
-    # 5. NMS
-    indices = cv2.dnn.NMSBoxes(
-        boxes_xywh_scaled.tolist(),
-        filtered_conf.tolist(),
-        conf_threshold,
-        iou_threshold
+    nms_indices = cv2.dnn.NMSBoxes(
+        boxes_xywh.tolist(), confidences.tolist(), conf_threshold, iou_threshold
     )
 
     detections = []
-    if len(indices) > 0:
-        for idx in indices.flatten():
+    if len(nms_indices) > 0:
+        for detection_idx in nms_indices.flatten():
             detections.append({
-                'bbox': boxes_xyxy_scaled[idx].tolist(),
-                'confidence': float(filtered_conf[idx]),
-                'keypoints': filtered_kpts_xy[idx].tolist(),
-                'kptconfidence': filtered_kpts_conf[idx].tolist()
+                'bbox': boxes_xyxy[detection_idx].tolist(),
+                'confidence': float(confidences[detection_idx]),
+                'keypoints': keypoints[detection_idx].tolist(),
+                'keypoint_confidences': keypoint_confidences[detection_idx].tolist()
             })
+
     return detections
 
-
-def draw_pose(img, keypoints, keypoints_conf):
+def draw_pose(img, keypoints, keypoint_confidences, keypoint_threshold):
     img_height, img_width = img.shape[:2]
 
-    # draw points + labels
-    for i, (x, y) in enumerate(keypoints):
-        if keypoints_conf[i] < 0.5:
+    # Draw skeleton lines before points so keypoints remain visible.
+    for start_idx, end_idx in SKELETON:
+        if (keypoint_confidences[start_idx] <= keypoint_threshold or
+            keypoint_confidences[end_idx] <= keypoint_threshold):
             continue
 
-        if x < 0 or x >= img_width or y < 0 or y >= img_height:
+        x1, y1 = keypoints[start_idx]
+        x2, y2 = keypoints[end_idx]
+        if not (0 <= x1 < img_width and 0 <= y1 < img_height and
+                0 <= x2 < img_width and 0 <= y2 < img_height):
             continue
 
-        x, y = int(x), int(y)
+        cv2.line(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
 
-        cv2.circle(img, (x, y), 4, (0, 0, 255), -1)
+    for keypoint_idx, (x, y) in enumerate(keypoints):
+        if keypoint_confidences[keypoint_idx] <= keypoint_threshold:
+            continue
+        if not (0 <= x < img_width and 0 <= y < img_height):
+            continue
 
+        point = (int(x), int(y))
+        cv2.circle(img, point, 4, (0, 0, 255), cv2.FILLED)
         cv2.putText(
-            img,
-            KEYPOINT_NAMES[i],
-            (x + 5, y - 5),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            (255, 255, 255),
-            1
+            img, KEYPOINT_NAMES[keypoint_idx], (point[0] + 5, point[1] - 5),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA
         )
 
-    # draw skeleton
-    for a, b in SKELETON:
-        if keypoints_conf[a] > 0.5 and keypoints_conf[b] > 0.5:
-            x1, y1 = keypoints[a][0], keypoints[a][1]
-            x2, y2 = keypoints[b][0], keypoints[b][1]
+def draw_detections(
+    img, detections, keypoint_threshold=0.5, save_path=None, in_place=False
+):
+    result_img = img if in_place else img.copy()
 
-            if (0 <= x1 < img_width and 0 <= y1 < img_height and
-                0 <= x2 < img_width and 0 <= y2 < img_height):
-
-                x1, y1 = int(x1), int(y1)
-                x2, y2 = int(x2), int(y2)
-                cv2.line(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-
-def get_color(conf):
-    import colorsys
-    hue = (conf * 137.508) % 360
-    rgb = colorsys.hsv_to_rgb(hue/360.0, 0.8, 0.9)
-    bgr = (int(rgb[2]*255), int(rgb[1]*255), int(rgb[0]*255))
-    return bgr
-
-
-def draw_detections(img, detections, save_path):
-    result_img = img.copy()
-
-    print(f"    Drawing {len(detections)} detections")
-
-    for i, det in enumerate(detections):
-        x1, y1, x2, y2 = [int(coord) for coord in det['bbox']]
-        confidence = det['confidence']
-        keypoints = det['keypoints']
-        kptsconf = det['kptconfidence']
-
-        print(f"    Detection {i+1}:")
-        print(f"      BBox: [{x1}, {y1}, {x2}, {y2}]")
-        print(f"      Confidence: {confidence:.4f}")
-
-        img_height, img_width = img.shape[:2]
-        if x1 < 0 or y1 < 0 or x2 > img_width or y2 > img_height:
-            print(f"      WARNING: BBox partly outside image bounds!")
-
-        visible_kpts = sum(1 for c in kptsconf if c > 0.5)
-        print(f"      Visible keypoints: {visible_kpts}/17")
-
-        color = get_color(confidence)
+    for detection in detections:
+        x1, y1, x2, y2 = [int(value) for value in detection['bbox']]
+        confidence = detection['confidence']
+        keypoints = detection['keypoints']
+        keypoint_confidences = detection['keypoint_confidences']
+        color = (230, 46, 46)
 
         cv2.rectangle(result_img, (x1, y1), (x2, y2), color, 2)
-
-        label = f"conf: {confidence:.2f}"
+        label = f"person: {confidence:.2f}"
         (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
-        cv2.rectangle(result_img, (x1, y1 - label_h - 10), (x1 + label_w, y1), color, -1)
-        text_color = (255, 255, 255) if sum(color) < 400 else (0, 0, 0)
-        cv2.putText(result_img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
+        label_x = max(0, x1)
+        label_y = max(y1, label_h + 10)
+        cv2.rectangle(
+            result_img, (label_x, label_y - label_h - 10),
+            (label_x + label_w, label_y), color, cv2.FILLED
+        )
+        cv2.putText(
+            result_img, label, (label_x, label_y - 5), cv2.FONT_HERSHEY_SIMPLEX,
+            0.6, (255, 255, 255), thickness=1, lineType=cv2.LINE_AA
+        )
+        draw_pose(result_img, keypoints, keypoint_confidences, keypoint_threshold)
 
-        # Draw pose keypoints
-        draw_pose(result_img, keypoints, kptsconf)
+    if save_path:
+        cv2.imwrite(save_path, result_img)
 
-    cv2.imwrite(save_path, result_img)
-    print(f"    Image saved to: {save_path}")
     return result_img
 
-
 def main():
-    parser = argparse.ArgumentParser(description="Yolov8-pose Demo")
+    parser = argparse.ArgumentParser(description="YOLOv8-Pose Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
+    parser.add_argument('--conf', type=float, default=0.25)
+    parser.add_argument('--nms', type=float, default=0.45)
+    parser.add_argument('--keypoint-conf', type=float, default=0.5)
     args = parser.parse_args()
 
     amlnn = AMLNN()
-
     amlnn.init_runtime(mode="native", enable_perf=True)
-
     amlnn.load_model(path=args.model_path)
-
     tensor_info = amlnn.get_tensor_info()
-
     print(amlnn.get_sdk_version())
 
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
     image_files = []
-    for ext in image_extensions:
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
+    for extension in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension)))
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension.upper())))
 
     if not image_files:
         print(f"No image files found in {args.image_dir}")
+        amlnn.uninit()
         return 0
 
     print(f"Found {len(image_files)} image file(s) to process:")
-    for img_file in image_files:
-        print(f"  - {os.path.basename(img_file)}")
+    for image_path in image_files:
+        print(f"  - {os.path.basename(image_path)}")
     print()
 
     tensor_attr = tensor_info["inputs"][0]
-    s = float(tensor_attr["scale"])
-    zp = int(tensor_attr["zp"])
+    input_h = int(tensor_attr["dims"][1])
+    input_w = int(tensor_attr["dims"][2])
+    input_shape = (input_h, input_w)
+    input_scale = float(tensor_attr["scale"])
+    input_zero_point = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
 
-    for i, image_path in enumerate(image_files, 1):
-        print(f"=" * 60)
-        print(f"Processing image {i}/{len(image_files)}: {os.path.basename(image_path)}")
-        print(f"=" * 60)
+    for image_idx, image_path in enumerate(image_files, 1):
+        print("=" * 60)
+        print(f"Processing image {image_idx}/{len(image_files)}: {os.path.basename(image_path)}")
+        print("=" * 60)
 
         try:
-            input_tensor, original_img, scale, pad = preprocess(
-                image_path, new_shape=(640, 640), data_format='NHWC', s=s, zp=zp, tensor_type=tensor_type
+            input_tensor, original_img, resize_scale, pad = preprocess(
+                image_path, input_shape, input_scale, input_zero_point, tensor_type
             )
-
             outputs = amlnn.inference(inputs=[input_tensor])
+            detections = postprocess(outputs, resize_scale, pad, args.conf, args.nms)
 
-            detections = postprocess(outputs, scale, pad, conf_threshold=0.25, iou_threshold=0.45)
+            if detections:
+                print(f"    Detected {len(detections)} people:")
+                for detection_idx, detection in enumerate(detections, 1):
+                    visible_keypoints = sum(
+                        score > args.keypoint_conf
+                        for score in detection['keypoint_confidences']
+                    )
+                    print(
+                        f"      {detection_idx}. confidence={detection['confidence']:.2f}, "
+                        f"visible keypoints={visible_keypoints}/17"
+                    )
+            else:
+                print("    No people detected")
 
-            model_name = Path(args.model_path).stem
-            result_dir = f"{model_name}_result"
+            result_dir = f"{Path(args.model_path).stem}_result"
             os.makedirs(result_dir, exist_ok=True)
-            img_name = Path(image_path).stem
-            save_path = os.path.join(result_dir, f"{img_name}_result.jpg")
-
-            draw_detections(original_img, detections, str(save_path))
-
-        except Exception as e:
-            print(f"Error processing {os.path.basename(image_path)}: {e}")
+            save_path = os.path.join(result_dir, f"{Path(image_path).stem}_result.jpg")
+            draw_detections(
+                original_img, detections, args.keypoint_conf, save_path=save_path
+            )
+            print(f"    Result saved to: {save_path}")
+        except Exception as error:
+            print(f"Error processing {os.path.basename(image_path)}: {error}")
 
         print()
 
-    print(f"=" * 60)    
+    print("=" * 60)
     print(amlnn.get_perf_info())
     amlnn.perf_visualize()
     amlnn.uninit()

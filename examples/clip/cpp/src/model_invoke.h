@@ -17,13 +17,9 @@
 #ifndef MODEL_INVOKE_H
 #define MODEL_INVOKE_H
 
+#include <cstdint>
 #include <vector>
-#include <stdint.h>
-#include "model_loader.h"
 
-// Run the Visual encoder (handles automatic quantization)
-std::vector<float> run_image_model(void *qcontext, const std::vector<float> &input_data);
-
-// Run the Text encoder (handles int64 to int32 downcasting if the NPU requires it)
-std::vector<float> run_text_model(void *qcontext, const std::vector<int64_t> &input_ids);
+std::vector<float> run_image_model(void *context, const std::vector<float> &input_data);
+std::vector<float> run_text_model(void *context, const std::vector<int64_t> &input_ids);
 #endif // MODEL_INVOKE_H

@@ -26,27 +26,21 @@
 #include "nnsdk2.h"
 #include "model_loader.h"
 
-const int MODEL_INPUT_WIDTH = 640;
-const int MODEL_INPUT_HEIGHT = 640;
 const float SCORE_THRESHOLD = 0.7f;
 const float NMS_THRESHOLD = 0.05f;
+const int REG_MAX = 16;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
 {
-    if (argc < 3)
+    if (argc < 4)
     {
-        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> [labels.txt (optional)]\n";
+        std::cout << "Usage: " << argv[0] << " <model.adla> <image_dir> <labels.txt>\n";
         return 0;
     }
 
     std::string model_path = argv[1];
-    std::string labels_path = "../input/labels.txt";
-
-    if (argc >= 4)
-    {
-        labels_path = argv[3];
-    }
+    std::string labels_path = argv[3];
 
     std::cout << "YOLOe Demo" << std::endl;
 
@@ -83,6 +77,20 @@ int main(int argc, char **argv)
     // Query Input Attribute for Scale and Zero Point
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
+    std::vector<int> input_shape = get_tensor_shape(input_attr);
+
+    std::cout << "Input shape: [";
+    for (size_t i = 0; i < input_shape.size(); ++i)
+    {
+        std::cout << input_shape[i];
+        if (i + 1 < input_shape.size())
+            std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
+
+    int input_height = input_shape[0];
+    int input_width = input_shape[1];
+
     // Cache Output Shapes
     std::vector<std::vector<int>> out_shapes;
     for (int i = 0; i < io_num.n_output; i++)
@@ -108,14 +116,14 @@ int main(int argc, char **argv)
         std::cout << "============================================================" << std::endl;
 
         // 3. Preprocess
-        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-        cv::Mat quantized_img = quantize_input(preprocessed, input_attr.scale, input_attr.zp);
+        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(input_height, input_width));
+        std::vector<uint8_t> prepared_data = prepare_input_tensor(preprocessed, input_attr);
 
         // 4. Set input, run inference, and Get Outputs
         size_t input_size = input_attr.n_elems * sizeof(int8_t);
 
         auto start_time = std::chrono::high_resolution_clock::now();
-        if (!run_network(context, quantized_img.data, input_size, outData))
+        if (!run_network(context, prepared_data.data(), prepared_data.size(), outData))
         {
             std::cerr << "Failed to run network" << std::endl;
             return -1;
@@ -138,10 +146,11 @@ int main(int argc, char **argv)
         // 5. Postprocess (6-Output Structure)
         std::vector<Detection> detections = postprocess(
             out_ptrs, out_shapes,
+            input_height, input_width,
             std::make_tuple(preprocessed, scale, pad),
             SCORE_THRESHOLD,
             NMS_THRESHOLD,
-            MODEL_INPUT_WIDTH);
+            REG_MAX);
 
         std::cout << "Detections after NMS: " << detections.size() << std::endl;
 

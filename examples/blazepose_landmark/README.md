@@ -54,7 +54,7 @@ cd examples/blazepose_landmark/py
 python export_adla.py \
   --model ../model/pose_landmark_full_float32.tflite \
   --dataset-path ../../../resource/pose_dataset.txt \
-  --target-platform 005 \
+  --target-platform 007 \
   --adla ../model
 ```
 
@@ -74,11 +74,11 @@ examples/blazepose_landmark/model/pose_landmark_full_float32_w8a8.adla
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+- Required packages: `amlnn`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**
@@ -86,12 +86,15 @@ pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch
 python blazepose_landmark_inference.py \
     --model-path ../model/pose_landmark_full_float32_w8a8.adla \
     --image-dir ../input
+    --detections-dir ../input
 ```
 Argument Descriptions:
 | Argument         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | `--model-path` | path to `.adla` model  |
-|` --image-dir`   | Directory containing test images |
+|` --image-dir`   | Directory containing test images. Every image inside must have a _det.txt in the detections directory or it will be skipped |
+| `--detections-dir` | Directory containing *_det.txt files.  |
+|` --conf`   | (Optional) The confidence score threshold filter; only detections with scores above this value are kept. Defaults to `0.5`. |
 
 The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
 

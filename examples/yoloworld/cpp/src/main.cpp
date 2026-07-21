@@ -19,18 +19,15 @@
 #include <vector>
 #include <chrono>
 #include <tuple>
-#include <iomanip>
-#include <algorithm>
 #include <opencv2/opencv.hpp>
 #include <filesystem>
 #include "postprocess.h"
 #include "nnsdk2.h"
 #include "model_loader.h"
 
-const int MODEL_INPUT_WIDTH = 640;
-const int MODEL_INPUT_HEIGHT = 480;
-const float SCORE_THRESHOLD = 0.3f;
+const float SCORE_THRESHOLD = 0.25f;
 const float NMS_THRESHOLD = 0.45f;
+const int REG_MAX = 16;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
@@ -43,10 +40,10 @@ int main(int argc, char **argv)
 
     std::string model_path = argv[1];
 
-    std::cout << "YOLO-World Demo" << std::endl;
+    std::cout << "YOLOWorld Demo" << std::endl;
     fs::create_directory("yoloworld_result");
 
-    // 1. Initialize Network
+    // Initialize the network and cache its input/output tensor metadata.
     void *context = nullptr;
     int ret = init_network(model_path, context);
     if (ret != AMLNN_SUCCESS)
@@ -55,25 +52,54 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    // Query IO numbers
     amlnn_input_output_num io_num;
     amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-    int n_outputs = io_num.n_output;
+    if (io_num.n_output != 3)
+    {
+        std::cerr << "Expected 3 YOLO-World outputs, but model has "
+                  << io_num.n_output << " outputs." << std::endl;
+        uninit_network(context);
+        return -1;
+    }
 
-    // Query Input Attributes dynamically
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
-    size_t input_size = input_attr.n_elems * sizeof(uint8_t);
+    std::vector<int> input_shape = get_tensor_shape(input_attr);
 
-    // Prepare outputs vector
-    std::vector<amlnn_output> outData(n_outputs);
+    std::cout << "Input shape: [";
+    for (size_t i = 0; i < input_shape.size(); ++i)
+    {
+        std::cout << input_shape[i];
+        if (i + 1 < input_shape.size())
+            std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
 
-    // 2. Loop through all images in directory
+    if (input_shape.size() < 2)
+    {
+        std::cerr << "Invalid input shape." << std::endl;
+        uninit_network(context);
+        return -1;
+    }
+
+    int input_height = input_shape[0];
+    int input_width = input_shape[1];
+
+    std::vector<amlnn_tensor_attr> out_attrs;
+    std::vector<std::vector<int>> out_shapes;
+    for (int i = 0; i < io_num.n_output; ++i)
+    {
+        out_attrs.push_back(query_output_attr(context, i));
+        out_shapes.push_back(get_tensor_shape(out_attrs[i]));
+    }
+
+    std::vector<amlnn_output> out_data(io_num.n_output);
+
+    // Process every readable image in the supplied directory.
     for (auto &it : fs::directory_iterator(argv[2]))
     {
         if (!it.is_regular_file())
             continue;
 
-        // 2. Load Image
         cv::Mat img = cv::imread(it.path().string());
         if (img.empty())
             continue;
@@ -82,79 +108,54 @@ int main(int argc, char **argv)
         std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
         std::cout << "============================================================" << std::endl;
 
-        // 3. Preprocess & Quantize
-        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-        cv::Mat quantized_img = quantize_input(preprocessed, input_attr.scale, input_attr.zp, input_attr.type);
+        auto [preprocessed, scale, pad] = preprocess(
+            img, std::make_tuple(input_height, input_width)
+        );
+        std::vector<uint8_t> prepared_data = prepare_input_tensor(preprocessed, input_attr);
+        if (prepared_data.empty())
+        {
+            std::cerr << "Failed to prepare input tensor." << std::endl;
+            continue;
+        }
 
-        // 4. Run Inference
         auto start_time = std::chrono::high_resolution_clock::now();
-
-        if (!run_network(context, quantized_img.data, input_size, outData))
+        if (!run_network(context, prepared_data.data(), prepared_data.size(), out_data))
         {
             std::cerr << "Failed to run network" << std::endl;
-            continue;
+            uninit_network(context);
+            return -1;
+        }
+
+        if (out_data.empty())
+        {
+            uninit_network(context);
+            return -1;
         }
 
         auto end_time = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
         std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
 
-        // 5. Gather and Sort Outputs
-        std::vector<OutputLayer> layers;
-        for (int i = 0; i < n_outputs; i++)
-        {
-            // Assign to local variable first
-            amlnn_tensor_attr attr = query_output_attr(context, i);
-            std::vector<int> shape = get_tensor_shape(attr);
+        // Runtime output buffers are already dequantized and exposed as float arrays.
+        std::vector<float *> out_ptrs;
+        for (int i = 0; i < io_num.n_output; ++i)
+            out_ptrs.push_back(static_cast<float *>(out_data[i].buf));
 
-            // STRICT 77-Channel Area Calculation
-            int total_elems = 1;
-            for (int d : shape)
-                total_elems *= d;
-            int area = total_elems / 77;
-
-            layers.push_back({(float *)outData[i].buf, shape, area});
-        }
-
-        // Sort descending by area (Largest grid = smallest stride)
-        std::sort(layers.begin(), layers.end(), [](const OutputLayer &a, const OutputLayer &b)
-                  { return a.area > b.area; });
-
-        std::vector<float *> out_buffers;
-        std::vector<std::vector<int>> out_shapes;
-        for (const auto &layer : layers)
-        {
-            out_buffers.push_back(layer.buf);
-            out_shapes.push_back(layer.shape);
-        }
-
-        // 6. Postprocess
         std::vector<Detection> detections = postprocess(
-            out_buffers, out_shapes,
+            out_ptrs, out_shapes, input_height, input_width,
             std::make_tuple(preprocessed, scale, pad),
-            SCORE_THRESHOLD, NMS_THRESHOLD);
+            SCORE_THRESHOLD, NMS_THRESHOLD, REG_MAX
+        );
 
         std::cout << "Detections: " << detections.size() << std::endl;
-        for (size_t j = 0; j < detections.size(); j++)
-        {
-            std::cout << "  " << j + 1 << ". Class " << WORLD_CLASSES[detections[j].class_id]
-                      << " - Score: " << detections[j].score << "\n";
-        }
-        std::cout << std::endl;
 
-        // 7. Draw and Save
         cv::Mat result_img = draw_detections(img, detections);
         std::string out_path = "yoloworld_result/" + it.path().filename().string();
         cv::imwrite(out_path, result_img);
-
-        std::cout << "Result saved to: " << out_path << std::endl
-                  << std::endl;
+        std::cout << "Result saved to: " << out_path << std::endl;
     }
 
-    std::cout << "============================================================" << std::endl
-              << std::endl;
-
-    // 8. Cleanup
+    std::cout << "============================================================" << std::endl << std::endl;
     uninit_network(context);
     return 0;
 }

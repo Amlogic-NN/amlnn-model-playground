@@ -42,8 +42,8 @@ Run image inference:
 cd examples/qrcode/py
 python qrcode.py \
     --model-path ../model/qrcode_int8.tflite \
-    --dataset-path ../../../resource/COCO_subset.txt \
-    --target-platform 005 \
+    --dataset-path ../../../resource/detection_dataset.txt \
+    --target-platform 007 \
     --image-dir ../input
 ```
 

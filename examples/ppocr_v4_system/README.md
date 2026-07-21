@@ -49,8 +49,8 @@ cd examples/ppocr_v4_system/py
 python export_adla.py \
   --det-onnx ../model/ppocr_det_static.onnx \
   --rec-onnx ../model/ppocr_rec_static.onnx \
-  --det-dataset-path ../../../resource/signs_dataset.txt \
-  --target-platform 005 \
+  --det-dataset-path ../../../resource/sign_dataset.txt \
+  --target-platform 007 \
   --adla ../model
 ```
 

@@ -217,92 +217,103 @@ std::vector<Detection> postprocess(const std::vector<float*>& out_ptrs,
     float safe_thresh = std::max(1e-5f, std::min(conf_thresh, 1.0f - 1e-5f));
     float inv_thresh = std::log(safe_thresh / (1.0f - safe_thresh));
 
-    for (size_t out_idx = 0; out_idx < out_ptrs.size(); ++out_idx) {
-        float* data = out_ptrs[out_idx];
-        const auto& shape = out_shapes[out_idx];
+    int strides[3] = {32, 16, 8};
+    int dfl_channels = 4 * reg_max;
 
-        // 1.Shape Parsing (Batch, Height, Width, Channels)
-        int height = 1, width = 1, channels = 1;
-        if (shape.size() == 4) {
+    for (int s = 0; s < 3; ++s)
+    {
+        float* data = out_ptrs[s];
+        const auto& shape = out_shapes[s];
+        int stride = strides[s];
+
+        int height = 1;
+        int width = 1;
+        int channels = 1;
+
+        if (shape.size() == 4)
+        {
             height = shape[1];
             width = shape[2];
             channels = shape[3];
-        } else if (shape.size() == 3) {
+        }
+        else if (shape.size() == 3)
+        {
             height = shape[0];
             width = shape[1];
             channels = shape[2];
-        } else {
-            std::cerr << "Unexpected shape dimensions!" << std::endl;
+        }
+        else
+        {
+            std::cerr << "Unexpected output shape for output " << s << std::endl;
             continue;
         }
 
         int num_cells = height * width;
-        int dfl_channel = 4 * reg_max;
-        int num_classes = channels - dfl_channel;
+        int num_classes = channels - dfl_channels;
 
-        // 2. Direct Stride Calculation
-        float stride_x = static_cast<float>(input_w) / width;
-        float stride_y = static_cast<float>(input_h) / height;
+        for (int i = 0; i < num_cells; ++i)
+        {
+            const float* cell_data = data + i * channels;
+            const float* cls_ptr = cell_data + dfl_channels;
 
-        for (int i = 0; i < num_cells; ++i) {
             float max_raw_score = -1e9f;
             int class_id = -1;
 
-            // 3. Fast Class Extraction (Data layout: 4 * regmax DFL + N Classes)
-            const float* cls_ptr = data + (i * channels) + dfl_channel;
-            for (int c = 0; c < num_classes; ++c) {
-                float val = cls_ptr[c];
-                if (val > max_raw_score) {
-                    max_raw_score = val;
+            for (int c = 0; c < num_classes; ++c)
+            {
+                float value = cls_ptr[c];
+
+                if (value > max_raw_score)
+                {
+                    max_raw_score = value;
                     class_id = c;
                 }
             }
 
-            // Early Stopping
-            if (max_raw_score > inv_thresh) {
-                float final_score = 1.0f / (1.0f + std::exp(-max_raw_score));
-                float dfl_vals[4] = {0.0f};
+            if (max_raw_score <= inv_thresh)
+                continue;
 
-                for (int d = 0; d < 4; ++d) {
-                    float max_dfl = -1e9f;
-                    int base_dfl_idx = d * reg_max;
-                    const float* dfl_ptr = data + (i * channels) + base_dfl_idx;
+            float final_score = 1.0f / (1.0f + std::exp(-max_raw_score));
+            float dfl_vals[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
-                    // Pass 1: Find Max for Softmax stability
-                    for (int r = 0; r < reg_max; ++r) {
-                        max_dfl = std::max(max_dfl, dfl_ptr[r]);
-                    }
+            for (int d = 0; d < 4; ++d)
+            {
+                const float* dfl_ptr = cell_data + d * reg_max;
+                float max_dfl = -1e9f;
 
-                    // Pass 2: Softmax & dot product
-                    float sum_exp = 0.0f, dot_prod = 0.0f;
-                    for (int r = 0; r < reg_max; ++r) {
-                        float exp_val = std::exp(dfl_ptr[r] - max_dfl);
-                        sum_exp += exp_val;
-                        dot_prod += exp_val * r;
-                    }
-                    dfl_vals[d] = dot_prod / sum_exp;
+                for (int r = 0; r < reg_max; ++r)
+                    max_dfl = std::max(max_dfl, dfl_ptr[r]);
+
+                float sum_exp = 0.0f;
+                float dot_product = 0.0f;
+
+                for (int r = 0; r < reg_max; ++r)
+                {
+                    float exp_value = std::exp(dfl_ptr[r] - max_dfl);
+                    sum_exp += exp_value;
+                    dot_product += exp_value * static_cast<float>(r);
                 }
 
-                // 4. Exact Grid Mapping
-                int gy = i / width;
-                int gx = i % width;
-
-                float cx = (gx + 0.5f) * stride_x;
-                float cy = (gy + 0.5f) * stride_y;
-
-                float x1 = cx - dfl_vals[0] * stride_x;
-                float y1 = cy - dfl_vals[1] * stride_y;
-                float x2 = cx + dfl_vals[2] * stride_x;
-                float y2 = cy + dfl_vals[3] * stride_y;
-
-                // Map coordinates back to the original full-resolution image
-                float x1_orig = std::max(0.0f, (x1 - pad_left) / scale);
-                float y1_orig = std::max(0.0f, (y1 - pad_top) / scale);
-                float x2_orig = std::max(0.0f, (x2 - pad_left) / scale);
-                float y2_orig = std::max(0.0f, (y2 - pad_top) / scale);
-
-                detections_orig.push_back({x1_orig, y1_orig, x2_orig, y2_orig, final_score, class_id});
+                dfl_vals[d] = dot_product / sum_exp;
             }
+
+            int gy = i / width;
+            int gx = i % width;
+
+            float anchor_x = (static_cast<float>(gx) + 0.5f) * stride;
+            float anchor_y = (static_cast<float>(gy) + 0.5f) * stride;
+
+            float x1 = anchor_x - dfl_vals[0] * stride;
+            float y1 = anchor_y - dfl_vals[1] * stride;
+            float x2 = anchor_x + dfl_vals[2] * stride;
+            float y2 = anchor_y + dfl_vals[3] * stride;
+
+            float x1_orig = std::max(0.0f, (x1 - pad_left) / scale);
+            float y1_orig = std::max(0.0f, (y1 - pad_top) / scale);
+            float x2_orig = std::max(0.0f, (x2 - pad_left) / scale);
+            float y2_orig = std::max(0.0f, (y2 - pad_top) / scale);
+
+            detections_orig.push_back({x1_orig, y1_orig, x2_orig, y2_orig, final_score, class_id});
         }
     }
 

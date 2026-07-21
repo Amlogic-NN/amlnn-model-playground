@@ -9,7 +9,7 @@ This example runs YOLOV8-OBB with AMLNN. The full flow is:
 
 ## Directory layout
 ```bash
-examples/yolov8_obb/
+examples/yolov8-obb/
 ├── cpp/               # C++ demo and build scripts
 ├── input/             # Input images for demo
 ├── model/             # Put ONNX and ADLA models here
@@ -29,8 +29,8 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py --onnx ../model/model.onnx \
-                                 --dataset-path ../../../resource/COCO_subset.txt \
-                                 --target-platform 005 \
+                                 --dataset-path ../../../resource/detection_dataset.txt \
+                                 --target-platform 007 \
                                  --adla ../model
 ```
 
@@ -46,11 +46,11 @@ Usage:   python export_adla.py --onnx ../model/model.onnx \
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+- Required packages: `amlnn`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**
@@ -64,6 +64,8 @@ Argument Descriptions:
 | ----------------- | ------------------------------------------------------------ |
 | `--model-path` | path to `.adla` model  |
 |` --image-dir`   | Directory containing test images |
+| `--conf` | (Optional) Sets the confidence threshold, defaults to 0.25 |
+|` --nms`   | (Optional) Sets the IOU threshold, defaults to 0.4 |
 
 The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
 
@@ -87,7 +89,7 @@ export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 Navigate to the C++ directory and run the build script.
 
 ```bash
-cd examples/yolov8_obb/cpp
+cd examples/yolov8-obb/cpp
 
 # Build for 64-bit (arm64-v8a) - Default
 ./build-android.sh
@@ -147,7 +149,7 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$P
 
 **2. Build:**
 ```bash
-cd examples/yolov8_obb/cpp
+cd examples/yolov8-obb/cpp
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -174,7 +176,7 @@ The executable will be generated at `build/linux/64/yolov8_obb_demo` (or `build/
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 
-cd examples/yolov8_obb/cpp
+cd examples/yolov8-obb/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake

@@ -19,11 +19,9 @@ import os
 import glob
 import argparse
 import cv2
+import colorsys
 from pathlib import Path
 from amlnn.api import AMLNN
-
-MEAN = np.array([0, 0, 0], dtype=np.float32)
-STD  = np.array([255, 255, 255], dtype=np.float32)
 
 def load_class_names(path):
     try:
@@ -34,163 +32,173 @@ def load_class_names(path):
         print(f"Warning: Could not load class names from '{path}'. Fallback to generic IDs.")
         return {}
 
-class_names = load_class_names("../input/labels.txt")
+def letterbox(img, new_shape, color=(114, 114, 114)):
+    shape = img.shape[:2]  # [height, width]
 
-def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
-    shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
     new_unpad = (int(round(shape[1] * scale)), int(round(shape[0] * scale)))
-    pad_w = (new_shape[1] - new_unpad[0]) / 2
-    pad_h = (new_shape[0] - new_unpad[1]) / 2
 
     if shape[::-1] != new_unpad:
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
 
-    top, bottom = int(round(pad_h - 0.1)), int(round(pad_h + 0.1))
-    left, right = int(round(pad_w - 0.1)), int(round(pad_w + 0.1))
+    pad_h = new_shape[0] - new_unpad[1]
+    pad_w = new_shape[1] - new_unpad[0]
+
+    top = pad_h // 2
+    bottom = pad_h - top
+    left = pad_w // 2
+    right = pad_w - left
+
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
 
     return img, scale, (left, top)
 
-def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.003789, zp=-128, tensor_type=2):
+def preprocess(img_path, new_shape, s, zp, tensor_type):
     original_img = cv2.imread(str(img_path))
     if original_img is None:
         raise ValueError(f"can't read image: {img_path}")
 
+    # 1. Resize and pad
     processed_img, scale, pad = letterbox(original_img, new_shape)
+
+    # 2. BGR to RGB
     rgb_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
-    normalized_img = rgb_img.astype(np.float32) / 255.0
+    rgb_float = rgb_img.astype(np.float32)
 
-    if data_format == 'NCHW':
-        input_tensor = np.transpose(normalized_img, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-    elif data_format == 'NHWC':
-        input_tensor = np.expand_dims(normalized_img, axis=0)
+    # 3. Fused Normalization & Quantization if needed
+    if tensor_type == 0: # FP32 & FP16
+        input_tensor = (rgb_float / 255.0) # Only normalize
+    elif tensor_type in (2, 3, 4):
+        inv_scale = np.float32(1.0 / (255.0 * s))
+        raw_val = np.round((rgb_float * inv_scale) + zp)
+
+        if tensor_type == 2:    # Int8
+            input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
+        elif tensor_type == 3:  # Uint8
+            input_tensor = np.clip(raw_val, 0, 255).astype(np.uint8)
+        else:                   # Int16
+            input_tensor = np.clip(raw_val, -32768, 32767).astype(np.int16)
     else:
-        raise ValueError(f"Unsupported format: {data_format}")
+        raise ValueError(f"Does not support tensor type: {tensor_type}")
 
-    val = np.round(input_tensor / s + zp)
-    if tensor_type == 2:
-        input_tensor = np.clip(val, -128, 127).astype(np.int8)
-    elif tensor_type == 3:
-        input_tensor = np.clip(val, 0, 255).astype(np.uint8)
+    # Add batch dimension
+    input_tensor = np.expand_dims(input_tensor, axis=0)
 
     return input_tensor, original_img, scale, pad
 
-def postprocess(outputs, scale, pad, data_format='NHWC', strides=[8, 16, 32], conf_threshold=0.25, iou_threshold=0.45):
+def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold, class_names, regmax=16):
+    # input_shape is a tuple: (input_height, input_width)
+    input_h, input_w = input_shape
+
     all_boxes = []
     all_scores = []
     all_class_ids = []
 
-    # Inverse sigmoid for raw logit thresholding
+    # Calculate inverse sigmoid threshold for early stopping
     safe_thresh = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
     inv_thresh = np.log(safe_thresh / (1.0 - safe_thresh))
 
-    # YOLOe splits outputs into pairs. Based on your code: [dfl_8, cls_8, dfl_16, cls_16, dfl_32, cls_32]
-    for s_idx, stride in enumerate(strides):
-        dfl_out = np.squeeze(outputs[s_idx * 2])
-        cls_out = np.squeeze(outputs[s_idx * 2 + 1])
+    # NOTE: You must ensure `outputs` are ordered [DFL_32, CLS_32, DFL_16, CLS_16, DFL_8, CLS_8]
+    strides = [32, 16, 8]
 
-        # Grid size assumes a 640x640 base input
-        grid_size = 640 // stride
-        num_cells = grid_size * grid_size
+    for idx, stride in enumerate(strides):
+        dfl_out = outputs[idx * 2]
+        cls_out = outputs[idx * 2 + 1]
 
-        # 1. Standardize Class Tensor -> strictly (80, N)
-        if data_format == 'NCHW':
-            if cls_out.ndim == 3:
-                cls_raw = cls_out.reshape(cls_out.shape[0], num_cells)
-            else:
-                cls_raw = cls_out if cls_out.shape[0] == 80 else cls_out.T
-        elif data_format == 'NHWC':
-            if cls_out.ndim == 3:
-                cls_raw = cls_out.transpose(2, 0, 1).reshape(cls_out.shape[2], num_cells)
-            else:
-                cls_raw = cls_out.T if cls_out.shape[1] == 80 else cls_out
+        dfl_sq = np.squeeze(dfl_out)
+        cls_sq = np.squeeze(cls_out)
+
+        if dfl_sq.shape[0] < dfl_sq.shape[1]:
+            dfl_preds = dfl_sq.T
+            class_preds = cls_sq.T
         else:
-            raise ValueError(f"Unsupported data format: {data_format}.")
+            dfl_preds = dfl_sq
+            class_preds = cls_sq
 
-        # 2. Standardize DFL Tensor -> strictly (32, N) for YOLOe (4 edges * 8 bins)
-        # Failsafe: Actively check shape to prevent boolean index errors
-        if dfl_out.shape[0] == 32:
-            dfl_raw = dfl_out
-        elif dfl_out.shape[1] == 32:
-            dfl_raw = dfl_out.T
-        else:
-            raise ValueError(f"Unexpected DFL shape: {dfl_out.shape}")
+        # Grid width based on input width and current stride
+        width = input_w // stride
 
-        # 3. Compare raw logits to inverse sigmoid threshold
-        max_raw_scores = np.max(cls_raw, axis=0)
+        regression_range = np.arange(regmax, dtype=np.float32)
+
+        # 2. Early filtering
+        max_raw_scores = np.max(class_preds, axis=1)
         valid_mask = max_raw_scores > inv_thresh
 
-        # Early Stopping if no objects found in this stride
-        if not np.any(valid_mask):
+        valid_indices = np.where(valid_mask)[0]
+
+        if len(valid_indices) == 0:
             continue
 
-        valid_cls_ids = np.argmax(cls_raw[:, valid_mask], axis=0)
-        valid_raw_scores = max_raw_scores[valid_mask]
+        valid_class_preds = class_preds[valid_indices]
+        valid_dfl_preds = dfl_preds[valid_indices]
 
-        # Apply Sigmoid only to valid scores
-        valid_scores = 1.0 / (1.0 + np.exp(-valid_raw_scores))
+        # Apply sigmoid to valid scores
+        valid_class_scores = 1.0 / (1.0 + np.exp(-valid_class_preds))
+        max_class_scores = np.max(valid_class_scores, axis=1)
+        class_ids = np.argmax(valid_class_scores, axis=1)
 
-        # Extract only valid DFL predictions
-        valid_dfl_raw = dfl_raw[:, valid_mask] # (32, V)
-        V = valid_dfl_raw.shape[1]
+        # 3. Grid generation
+        grid_y = (valid_indices // width).astype(np.float32)
+        grid_x = (valid_indices % width).astype(np.float32)
 
-        # 4. 8-Bin DFL Decode for YOLOe
-        dfl = valid_dfl_raw.reshape(4, 8, V)
-        
-        # Numerically stable Softmax
-        dfl_max = np.max(dfl, axis=1, keepdims=True)
-        exp_dfl = np.exp(dfl - dfl_max)
-        softmax_dfl = exp_dfl / np.sum(exp_dfl, axis=1, keepdims=True)
+        # 4. DFL decoding
+        dfl_reshaped = valid_dfl_preds.reshape(-1, 4, regmax)
+        dfl_max = np.max(dfl_reshaped, axis=-1, keepdims=True)
+        exp_dfl = np.exp(dfl_reshaped - dfl_max)
+        dfl_softmax = exp_dfl / np.sum(exp_dfl, axis=-1, keepdims=True)
+        bbox_deltas = np.sum(dfl_softmax * regression_range[None, None, :], axis=-1)
 
-        weights = np.arange(8, dtype=np.float32).reshape(1, 8, 1)
-        ltrb = np.sum(softmax_dfl * weights, axis=1) # (4, V)
+        # 5. Absolute coordinates
+        anchor_x = (grid_x + 0.5) * stride
+        anchor_y = (grid_y + 0.5) * stride
 
-        # Generate grid coordinates but keep ONLY the valid ones
-        gy, gx = np.mgrid[0:grid_size, 0:grid_size]
-        valid_gx = gx.flatten()[valid_mask]
-        valid_gy = gy.flatten()[valid_mask]
+        left, top, right, bottom = bbox_deltas.T
+        x1 = anchor_x - left * stride
+        y1 = anchor_y - top * stride
+        x2 = anchor_x + right * stride
+        y2 = anchor_y + bottom * stride
 
-        cx = (valid_gx + 0.5) * stride
-        cy = (valid_gy + 0.5) * stride
+        boxes = np.stack([x1, y1, x2, y2], axis=1)
 
-        x1 = cx - ltrb[0] * stride
-        y1 = cy - ltrb[1] * stride
-        x2 = cx + ltrb[2] * stride
-        y2 = cy + ltrb[3] * stride
-
-        valid_boxes = np.stack([x1, y1, x2, y2], axis=1)
-
-        all_boxes.append(valid_boxes)
-        all_scores.append(valid_scores)
-        all_class_ids.append(valid_cls_ids)
+        all_boxes.append(boxes)
+        all_scores.append(max_class_scores)
+        all_class_ids.append(class_ids)
 
     # Merge all scales
     if not all_boxes:
         return []
 
-    boxes = np.concatenate(all_boxes, axis=0)
-    scores = np.concatenate(all_scores, axis=0)
-    class_ids = np.concatenate(all_class_ids, axis=0)
+    valid_boxes = np.concatenate(all_boxes, axis=0)
+    valid_scores = np.concatenate(all_scores, axis=0)
+    valid_class_ids = np.concatenate(all_class_ids, axis=0)
 
-    # 5. Map coordinates back to original image
+    # Map coordinates back to original image scaling
     pad_x, pad_y = pad
-    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale
-    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale
-    boxes = np.maximum(boxes, 0)
+    valid_boxes[:, [0, 2]] = (valid_boxes[:, [0, 2]] - pad_x) / scale
+    valid_boxes[:, [1, 3]] = (valid_boxes[:, [1, 3]] - pad_y) / scale
+
+    valid_boxes = np.maximum(valid_boxes, 0)
+
+    # Safe class name getter
+    def get_class_name(cid):
+        if isinstance(class_names, dict):
+            return class_names.get(cid, f'class_{cid}')
+        elif isinstance(class_names, (list, tuple)):
+            if 0 <= cid < len(class_names):
+                return class_names[cid]
+        return f'class_{cid}'
 
     detections = []
 
-    # 6. EXACT PER-CLASS NMS
-    unique_classes = np.unique(class_ids)
+    # 6. Per-Class NMS
+    unique_classes = np.unique(valid_class_ids)
 
     for c in unique_classes:
-        class_mask = class_ids == c
-        c_boxes = boxes[class_mask]
-        c_scores = scores[class_mask]
+        class_mask = valid_class_ids == c
+        c_boxes = valid_boxes[class_mask]
+        c_scores = valid_scores[class_mask]
 
-        # NMSBoxes needs [x, y, w, h] format
+        # NMSBoxes needs [x1, y1, w, h]
         c_widths = c_boxes[:, 2] - c_boxes[:, 0]
         c_heights = c_boxes[:, 3] - c_boxes[:, 1]
         c_boxes_xywh = np.stack([c_boxes[:, 0], c_boxes[:, 1], c_widths, c_heights], axis=1)
@@ -202,48 +210,82 @@ def postprocess(outputs, scale, pad, data_format='NHWC', strides=[8, 16, 32], co
         if len(nms_indices) > 0:
             nms_indices = nms_indices.flatten()
             for idx in nms_indices:
-                bx1, by1, bx2, by2 = c_boxes[idx] 
+                bx1, by1, bx2, by2 = c_boxes[idx]
                 detections.append({
                     'bbox': [float(bx1), float(by1), float(bx2), float(by2)],
                     'confidence': float(c_scores[idx]),
                     'class_id': int(c),
-                    'class_name': class_names.get(int(c), f'class_{int(c)}')
+                    'class_name': get_class_name(int(c))
                 })
 
     return detections
 
-def get_class_color(class_id):
-    import colorsys
+def get_class_color_and_text_color(class_id):
     hue = (class_id * 137.508) % 360
-    rgb = colorsys.hsv_to_rgb(hue/360.0, 0.8, 0.9)
-    return (int(rgb[2]*255), int(rgb[1]*255), int(rgb[0]*255))
+    rgb = colorsys.hsv_to_rgb(hue / 360.0, 0.8, 0.9)
+    bgr = (int(rgb[2] * 255), int(rgb[1] * 255), int(rgb[0] * 255))
+    # Precompute text color based on background brightness
+    text_color = (255, 255, 255) if sum(bgr) < 400 else (0, 0, 0)
+    return bgr, text_color
+
 
 def draw_detections(img, detections, save_path):
     result_img = img.copy()
+    img_h, img_w = result_img.shape[:2]
     print(f"    Detected {len(detections)} objects")
 
     for i, det in enumerate(detections, 1):
         x1, y1, x2, y2 = map(int, det['bbox'])
+
+        x1 = max(0, min(x1, img_w - 1))
+        y1 = max(0, min(y1, img_h - 1))
+        x2 = max(0, min(x2, img_w - 1))
+        y2 = max(0, min(y2, img_h - 1))
+
         confidence = det['confidence']
         class_name = det['class_name']
 
         print(f"      {i}. {class_name} ({confidence:.2f}) -> [{x1}, {y1}, {x2}, {y2}]")
-        color = get_class_color(det['class_id'])
+
+        color, text_color = get_class_color_and_text_color(det['class_id'])
+
+        # Draw the bounding box
         cv2.rectangle(result_img, (x1, y1), (x2, y2), color, 2)
 
         label = f"{class_name} {confidence:.2f}"
         (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
-        cv2.rectangle(result_img, (x1, y1 - label_h - 10), (x1 + label_w, y1), color, -1)
-        text_color = (255, 255, 255) if sum(color) < 400 else (0, 0, 0)
-        cv2.putText(result_img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
+
+        # 1. Prevent label from going off the Right edge
+        label_x = x1
+        if label_x + label_w > img_w:
+            label_x = img_w - label_w
+
+        # 2. Prevent label from going off the Top edge
+        label_top_y = y1 - label_h - 10
+        label_bottom_y = y1
+        text_y = y1 - 5
+
+        # If it goes off the top screen, flip the label to be INSIDE the bounding box
+        if label_top_y < 0:
+            label_top_y = y1
+            label_bottom_y = y1 + label_h + 10
+            text_y = y1 + label_h + 5
+
+        # Draw label background
+        cv2.rectangle(result_img, (label_x, label_top_y), (label_x + label_w, label_bottom_y), color, -1)
+
+        # Draw text
+        cv2.putText(result_img, label, (label_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
 
     cv2.imwrite(save_path, result_img)
-    print(f"    Result saved to: {save_path}")
 
 def main():
     parser = argparse.ArgumentParser(description="Yoloe Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
+    parser.add_argument('--labels', default="../input/labels.txt", help='Path of the labels.txt')
+    parser.add_argument("--conf", type=float, default=0.7)
+    parser.add_argument("--nms", type=float, default=0.05)
     args = parser.parse_args()
 
     amlnn = AMLNN()
@@ -272,20 +314,27 @@ def main():
     print()
 
     tensor_attr = tensor_info["inputs"][0]
+    input_h = int(tensor_attr["dims"][1])
+    input_w = int(tensor_attr["dims"][2])
+    input_shape = (input_h, input_w)
     s = float(tensor_attr["scale"])
     zp = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
 
+    class_names = load_class_names(args.labels)
+
     # Process each image
     for i, image_path in enumerate(image_files, 1):
+        print(f"=" * 60)
+        print(f"Processing image {i}/{len(image_files)}: {os.path.basename(image_path)}")
+        print(f"=" * 60)
+
         try:
-            input_tensor, original_img, scale, pad = preprocess(
-                image_path, new_shape=(640, 640), data_format='NHWC', s=s, zp=zp, tensor_type=tensor_type
-            )
+            input_tensor, original_img, scale, pad = preprocess(image_path, input_shape, s, zp, tensor_type)
 
             outputs = amlnn.inference(inputs=[input_tensor])
 
-            detections = postprocess(outputs, scale, pad, data_format='NHWC', conf_threshold=0.5, iou_threshold=0.1)
+            detections = postprocess(outputs, input_shape, scale, pad, args.conf, args.nms, class_names)
 
             if detections:
                 print(f"Detected {len(detections)} objects in {os.path.basename(image_path)}")
@@ -295,9 +344,10 @@ def main():
             model_name = Path(args.model_path).stem
             result_dir = f"{model_name}_result"
             os.makedirs(result_dir, exist_ok=True)
-            save_path = os.path.join(result_dir, f"{Path(image_path).stem}_result.jpg")
-
+            img_name = Path(image_path).stem
+            save_path = os.path.join(result_dir, f"{img_name}_result.jpg")
             draw_detections(original_img, detections, str(save_path))
+            print(f"    Result saved to: {save_path}")
 
         except Exception as e:
             print(f"Error processing {os.path.basename(image_path)}: {e}")

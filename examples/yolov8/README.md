@@ -29,8 +29,8 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py --onnx ../model/model.onnx \
-                                 --dataset-path ../../../resource/COCO_subset.txt \
-                                 --target-platform 005 \
+                                 --dataset-path ../../../resource/detection_dataset.txt \
+                                 --target-platform 007 \
                                  --adla ../model
 ```
 
@@ -46,11 +46,11 @@ Usage:   python export_adla.py --onnx ../model/model.onnx \
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+- Required packages: `amlnn`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**

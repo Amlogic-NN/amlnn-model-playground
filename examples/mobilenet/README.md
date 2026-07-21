@@ -60,7 +60,13 @@ Expected path:
 ```text
 examples/retinaface/model/mobilenet_v2_1.0_224_quant.tflite
 ```
-**Note**: the quantized TFLite file has better accuracy than the pytorch onnx model.
+
+## Labels Download
+
+To correctly identify the detected objects, you will need the specific label file associated with this model.
+
+**Download Link:**
+* [Download `labels.txt` here](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 ## 2. Convert ONNX/TFLite To ADLA
 
@@ -70,8 +76,8 @@ Run the ADLA export script from `examples/mobilenet/py`:
 cd examples/mobilenet/py
 python export_adla.py \
   --model ../model/mobilenet_v2.onnx \
-  --dataset-path ../../../resource/COCO_subset.txt \
-  --target-platform 005 \
+  --dataset-path ../../../resource/classification_subset.txt \
+  --target-platform 007 \
   --adla ../model
 ```
 
@@ -91,11 +97,11 @@ examples/mobilenet/model/mobilenet_v2_w8a8.adla
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+- Required packages: `amlnn`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**
@@ -161,7 +167,7 @@ cd /data/local/tmp
 chmod +x mobilenet_demo
 export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
-# Usage: ./mobilenet_demo <model_path> <image_dir> [labels.txt]
+# Usage: ./mobilenet_demo <model_path> <image_dir> <labels.txt>
 ./mobilenet_demo mobilenet_v2_w8a8.adla input/ input/labels.txt
 ```
 

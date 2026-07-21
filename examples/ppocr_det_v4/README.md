@@ -46,8 +46,8 @@ Run the ADLA export script from `examples/ppocr_det_v4/py`:
 cd examples/ppocr_det_v4/py
 python export_adla.py \
   --onnx ../model/ppocr_det_static.onnx \
-  --dataset-path ../../../resource/signs_dataset.txt \
-  --target-platform 005 \
+  --dataset-path ../../../resource/sign_dataset.txt \
+  --target-platform 007 \
   --adla ../model
 ```
 

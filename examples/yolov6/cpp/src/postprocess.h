@@ -17,32 +17,26 @@
 #ifndef POSTPROCESS_H
 #define POSTPROCESS_H
 
-#include <vector>
+#include <cstdint>
 #include <tuple>
-#include <string>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include "nnsdk2.h"
 
 struct Detection
 {
-    float x1, y1, x2, y2, score;
+    float x1;
+    float y1;
+    float x2;
+    float y2;
+    float score;
     int class_id;
 };
 
 std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr);
-
-std::vector<std::string> load_labels(const std::string &path);
-
 std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
-
-cv::Mat quantize_input(const cv::Mat &float_img, float scale, int32_t zero_point);
-
-std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs,
-                                   const std::vector<std::vector<int>> &out_shapes,
-                                   std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-                                   float conf_thresh, float iou_threshold,
-                                   int model_input_size = 640);
-
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+std::vector<Detection> postprocess(const std::vector<float *> &out_ptrs, const std::vector<std::vector<int>> &out_shapes, int input_h, int input_w, std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple, float conf_thresh, float iou_threshold);
 cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections);
 
-#endif // POSTPROCESS_H
+#endif

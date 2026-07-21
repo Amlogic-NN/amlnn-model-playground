@@ -42,8 +42,8 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py --onnx ../model/deeplabv3_mobilenet_v3_sim.onnx \
-                                 --dataset-path ../../../resource/COCO_subset.txt \
-                                 --target-platform 005 \
+                                 --dataset-path ../../../resource/detection_dataset.txt \
+                                 --target-platform 007 \
                                  --adla ../model
 ```
 

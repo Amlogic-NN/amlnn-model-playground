@@ -15,322 +15,297 @@
  */
 
 #include "postprocess.h"
-#include <iostream>
-#include <cmath>
-#include <fstream>
-#include <sstream>
+
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <utility>
 
-static const std::vector<std::pair<int, int>> POSE_CONNECTIONS = {
-    // Face
-    {0, 1},
-    {1, 2},
-    {2, 3},
-    {3, 7},
-    {0, 4},
-    {4, 5},
-    {5, 6},
-    {6, 8},
-    // Mouth
-    {9, 10},
-    // Shoulders
-    {11, 12},
-    // Right arm
-    {11, 13},
-    {13, 15},
-    {15, 17},
-    {15, 19},
-    {15, 21},
-    {17, 19},
-    // Left arm
-    {12, 14},
-    {14, 16},
-    {16, 18},
-    {16, 20},
-    {16, 22},
-    {18, 20},
-    // Torso
-    {11, 23},
-    {12, 24},
-    {23, 24},
-    // Right leg
-    {23, 25},
-    {25, 27},
-    {27, 29},
-    {27, 31},
-    {29, 31},
-    // Left leg
-    {24, 26},
-    {26, 28},
-    {28, 30},
-    {28, 32},
-    {30, 32}};
+const int MODEL_SIZE = 256;
+const float ROI_SCALE = 2.5f;
+const float PI = 3.14159265358979323846f;
 
-#define LOGE(...)                     \
-    do                                \
-    {                                 \
-        fprintf(stderr, __VA_ARGS__); \
-        fprintf(stderr, "\n");        \
-    } while (0)
+const std::vector<std::pair<int, int>> SKELETON = {
+    {0, 1}, {1, 2}, {2, 3}, {3, 7}, {0, 4}, {4, 5}, {5, 6}, {6, 8},
+    {9, 10}, {11, 12}, {11, 13}, {13, 15}, {15, 17}, {15, 19}, {15, 21},
+    {17, 19}, {12, 14}, {14, 16}, {16, 18}, {16, 20}, {16, 22}, {18, 20},
+    {11, 23}, {12, 24}, {23, 24}, {23, 25}, {24, 26}, {25, 27}, {26, 28},
+    {27, 29}, {28, 30}, {29, 31}, {30, 32}, {27, 31}, {28, 32}
+};
 
-static float sigmoid(float x)
+static float sigmoid(float value)
 {
-    return 1.0f / (1.0f + std::exp(-x));
+    value = std::max(-100.0f, std::min(value, 100.0f));
+    return 1.0f / (1.0f + std::exp(-value));
 }
 
-std::tuple<cv::Mat, ROI> preprocess(cv::Mat img, std::vector<std::vector<float>> &detections, std::tuple<int, int> new_shape)
+static cv::Point2f roi_to_image_point(float x, float y, const Roi &roi)
 {
-    cv::Mat img_rgb;
-    if (img.empty())
+    float local_x = (x / MODEL_SIZE - 0.5f) * roi.size;
+    float local_y = (y / MODEL_SIZE - 0.5f) * roi.size;
+    float cosine = std::cos(roi.rotation);
+    float sine = std::sin(roi.rotation);
+
+    return {roi.center_x + cosine * local_x - sine * local_y,
+            roi.center_y + sine * local_x + cosine * local_y};
+}
+
+static int element_count(const std::vector<int> &shape)
+{
+    int count = 1;
+
+    for (int dimension : shape)
+        count *= dimension;
+
+    return count;
+}
+
+std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr)
+{
+    std::vector<int> shape;
+
+    for (int i = 0; i < attr.n_dims; ++i)
     {
-        LOGE("Preprocess received empty image");
-        return {};
+        if (attr.dims[i] > 1)
+            shape.push_back(attr.dims[i]);
     }
 
-    if (img.channels() == 4)
-        cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
-    else if (img.channels() == 3)
-        cv::cvtColor(img, img_rgb, cv::COLOR_BGR2RGB);
+    return shape;
+}
+
+std::vector<Detection> load_detections(const std::string &path)
+{
+    std::ifstream file(path);
+    std::vector<Detection> detections;
+
+    if (!file.is_open())
+        return detections;
+
+    while (true)
+    {
+        Detection detection;
+
+        for (float &value : detection.coords)
+        {
+            if (!(file >> value))
+                return detections;
+        }
+
+        if (!(file >> detection.score))
+            return detections;
+
+        detections.push_back(detection);
+    }
+}
+
+Roi detection_to_roi(const Detection &detection, int image_width, int image_height)
+{
+    float center_x = detection.coords[4] * image_width;
+    float center_y = detection.coords[5] * image_height;
+    float end_x = detection.coords[6] * image_width;
+    float end_y = detection.coords[7] * image_height;
+    float radius = std::hypot(end_x - center_x, end_y - center_y);
+
+    if (radius < 1.0f)
+    {
+        float box_width = (detection.coords[3] - detection.coords[1]) * image_width;
+        float box_height = (detection.coords[2] - detection.coords[0]) * image_height;
+        center_x = (detection.coords[1] + detection.coords[3]) * image_width / 2.0f;
+        center_y = (detection.coords[0] + detection.coords[2]) * image_height / 2.0f;
+        radius = std::max(box_width, box_height) / 2.0f;
+    }
+
+    float rotation = PI / 2.0f - std::atan2(-(end_y - center_y), end_x - center_x);
+    return {center_x, center_y, ROI_SCALE * radius, rotation};
+}
+
+cv::Mat preprocess(const cv::Mat &image, const Roi &roi, std::tuple<int, int> new_shape)
+{
+    int input_height = std::get<0>(new_shape);
+    int input_width = std::get<1>(new_shape);
+
+    cv::Point2f source[3] = {
+        roi_to_image_point(0.0f, 0.0f, roi),
+        roi_to_image_point(input_width - 1.0f, 0.0f, roi),
+        roi_to_image_point(0.0f, input_height - 1.0f, roi)
+    };
+
+    cv::Point2f destination[3] = {
+        {0.0f, 0.0f},
+        {static_cast<float>(input_width - 1), 0.0f},
+        {0.0f, static_cast<float>(input_height - 1)}
+    };
+
+    cv::Mat transform = cv::getAffineTransform(source, destination);
+    cv::Mat crop;
+
+    cv::warpAffine(image, crop, transform, cv::Size(input_width, input_height),
+                   cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+
+    cv::cvtColor(crop, crop, cv::COLOR_BGR2RGB);
+    crop.convertTo(crop, CV_32FC3, 1.0 / 255.0);
+
+    return crop;
+}
+
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+{
+    std::vector<uint8_t> tensor_data;
+
+    if (float_img.empty() || float_img.type() != CV_32FC3)
+    {
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
+    }
+
+    int total_elements = static_cast<int>(float_img.total() * float_img.channels());
+    const float *src_ptr = float_img.ptr<float>();
+
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
+    {
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
+    }
+    else if (attr.type == AMLNN_TENSOR_INT16)
+    {
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
+
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, value)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, value)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, value)));
+        }
+    }
     else
-        img_rgb = img.clone();
-
-    if (detections.empty())
     {
-        LOGE("No detections provided");
-        return {};
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
     }
 
-    auto &det = detections[0];
-    float x_center = det[4];
-    float y_center = det[5];
-    float x_scale = det[6];
-    float y_scale = det[7];
-
-    float box_size = std::sqrt((x_scale - x_center) * (x_scale - x_center) + (y_scale - y_center) * (y_scale - y_center)) * 2.f;
-    box_size *= 1.25f;
-
-    float angle = (M_PI * 90.f / 180.f) - std::atan2(-(y_scale - y_center), x_scale - x_center);
-    float rotation = angle - 2.f * M_PI * std::floor((angle - (-M_PI)) / (2.f * M_PI));
-
-    cv::RotatedRect rotated_rect(cv::Point2f(x_center, y_center), cv::Size2f(box_size, box_size), rotation * 180.f / M_PI);
-    cv::Point2f pts1[4];
-    rotated_rect.points(pts1);
-
-    int w = std::get<1>(new_shape);
-    int h = std::get<0>(new_shape);
-
-    cv::Point2f pts2[4] = {
-        cv::Point2f(0.f, (float)h),
-        cv::Point2f(0.f, 0.f),
-        cv::Point2f((float)w, 0.f),
-        cv::Point2f((float)w, (float)h)};
-
-    cv::Mat M = cv::getPerspectiveTransform(pts1, pts2);
-    cv::Mat processed_img;
-    cv::warpPerspective(img_rgb, processed_img, M, cv::Size(w, h), cv::INTER_LINEAR, cv::BORDER_REPLICATE);
-
-    cv::Mat img_float;
-    processed_img.convertTo(img_float, CV_32F, 1.0 / 255.0);
-
-    ROI roi = {x_center, y_center, box_size, rotation};
-
-    return std::make_tuple(img_float, roi);
+    return tensor_data;
 }
 
-cv::Mat quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+bool postprocess(const std::vector<float *> &out_ptrs,
+                 const std::vector<std::vector<int>> &out_shapes,
+                 const Roi &roi, int image_width, int image_height,
+                 float presence_threshold, PoseResult &result)
 {
-    // Type 0 is Float32 (No quantization needed)
-    if (attr.type == 0)
-        return float_img.clone();
+    result.score = out_ptrs[1][0];
 
-    // Type 3 is UINT8, otherwise assume INT8
-    int mat_type = (attr.type == 3) ? CV_8UC3 : CV_8SC3;
-    cv::Mat quantized_img(float_img.rows, float_img.cols, mat_type);
+    if (result.score < presence_threshold)
+        return false;
 
-    const float *src = (const float *)float_img.data;
-    int total = float_img.total() * float_img.channels();
+    float cosine = std::cos(roi.rotation);
+    float sine = std::sin(roi.rotation);
 
-    if (attr.type == 3)
-    { // UINT8
-        uint8_t *dst = (uint8_t *)quantized_img.data;
-        for (int i = 0; i < total; ++i)
-        {
-            float val = std::round(src[i] / attr.scale) + attr.zp;
-            dst[i] = static_cast<uint8_t>(std::clamp(val, 0.f, 255.f));
-        }
+    for (int i = 0; i < NUM_POSE_LANDMARKS; ++i)
+    {
+        const float *raw = out_ptrs[0] + i * 5;
+        const float *world = out_ptrs[4] + i * 3;
+        cv::Point2f point = roi_to_image_point(raw[0], raw[1], roi);
+
+        Landmark &landmark = result.landmarks[i];
+        landmark.x = point.x / image_width;
+        landmark.y = point.y / image_height;
+        landmark.z = raw[2] * roi.size / (MODEL_SIZE * image_width);
+        landmark.visibility = sigmoid(raw[3]);
+        landmark.presence = sigmoid(raw[4]);
+        landmark.world.x = cosine * world[0] - sine * world[1];
+        landmark.world.y = sine * world[0] + cosine * world[1];
+        landmark.world.z = world[2];
     }
-    else
-    { // INT8
-        int8_t *dst = (int8_t *)quantized_img.data;
-        for (int i = 0; i < total; ++i)
-        {
-            float val = std::round(src[i] / attr.scale) + attr.zp;
-            dst[i] = static_cast<int8_t>(std::clamp(val, -128.f, 127.f));
-        }
-    }
-    return quantized_img;
+
+    return true;
 }
 
-void refine_landmark(std::vector<std::vector<float>> &landmarks, const float *heatmap, int hm_w, int hm_h, int hm_c)
+bool save_landmarks(const std::string &path, const std::vector<PoseResult> &results)
 {
-    float min_confidence = 0.5f;
-    int kernel_size = 9;
-    int offset = kernel_size;
+    std::ofstream file(path);
 
-    for (size_t i = 0; i < landmarks.size(); ++i)
+    if (!file.is_open())
+        return false;
+
+    file << std::fixed << std::setprecision(8);
+
+    for (size_t pose_index = 0; pose_index < results.size(); ++pose_index)
     {
-        int col = static_cast<int>(landmarks[i][0] * hm_w);
-        int row = static_cast<int>(landmarks[i][1] * hm_h);
-
-        if (!(col >= 0 && col < hm_w && row >= 0 && row < hm_h))
+        for (int landmark_index = 0; landmark_index < NUM_POSE_LANDMARKS; ++landmark_index)
         {
-            continue;
-        }
+            const Landmark &landmark = results[pose_index].landmarks[landmark_index];
 
-        int c0 = std::max(0, col - offset);
-        int c1 = std::min(hm_w, col + offset + 1);
-        int r0 = std::max(0, row - offset);
-        int r1 = std::min(hm_h, row + offset + 1);
-
-        float val_sum = 0.0f;
-        float weighted_col = 0.0f;
-        float weighted_row = 0.0f;
-        float max_conf = 0.0f;
-
-        for (int r = r0; r < r1; ++r)
-        {
-            for (int c = c0; c < c1; ++c)
-            {
-                float val = heatmap[r * hm_w * hm_c + c * hm_c + i];
-                float conf = sigmoid(val);
-                val_sum += conf;
-                max_conf = std::max(max_conf, conf);
-                weighted_col += c * conf;
-                weighted_row += r * conf;
-            }
-        }
-
-        if (max_conf >= min_confidence && val_sum > 0)
-        {
-            landmarks[i][0] = weighted_col / (hm_w * val_sum);
-            landmarks[i][1] = weighted_row / (hm_h * val_sum);
+            file << pose_index << ' ' << landmark_index << ' '
+                 << landmark.x << ' ' << landmark.y << ' ' << landmark.z << ' '
+                 << landmark.visibility << ' ' << landmark.presence << ' '
+                 << landmark.world.x << ' ' << landmark.world.y << ' '
+                 << landmark.world.z << '\n';
         }
     }
+
+    return true;
 }
 
-std::vector<BlazePoseLandmark> postprocess(float *raw_landmarks, float *raw_heatmap, const ROI &roi)
+cv::Mat draw_detections(const cv::Mat &image, const std::vector<PoseResult> &results,
+                        float visibility_threshold)
 {
-    std::vector<std::vector<float>> landmarks(NUM_LANDMARKS, std::vector<float>(5, 0.0f));
-    for (int i = 0; i < NUM_LANDMARKS; i++)
+    cv::Mat result_image = image.clone();
+
+    for (const auto &result : results)
     {
-        for (int j = 0; j < 5; j++)
+        for (const auto &[a, b] : SKELETON)
         {
-            float val = raw_landmarks[i * 5 + j];
+            const Landmark &landmark_a = result.landmarks[a];
+            const Landmark &landmark_b = result.landmarks[b];
 
-            if (j == 3 || j == 4)
-                val = sigmoid(val);
-            if (j < 3)
-                val = val / IMAGE_SIZE;
-
-            landmarks[i][j] = val;
-        }
-    }
-
-    // Refine landmarks
-    if (raw_heatmap)
-    {
-        refine_landmark(landmarks, raw_heatmap, 64, 64, 39);
-    }
-
-    // Denormalize coordinates to Original Image Space
-    float cosa = std::cos(roi.rotation);
-    float sina = std::sin(roi.rotation);
-
-    std::vector<BlazePoseLandmark> pose_res;
-    BlazePoseLandmark pose;
-    pose.landmarks.resize(NUM_LANDMARKS);
-
-    for (int i = 0; i < NUM_LANDMARKS; ++i)
-    {
-        float x = landmarks[i][0] - 0.5f;
-        float y = landmarks[i][1] - 0.5f;
-        float z = landmarks[i][2];
-
-        float new_x = (cosa * x - sina * y) * roi.box_size + roi.x_center;
-        float new_y = (sina * x + cosa * y) * roi.box_size + roi.y_center;
-        float new_z = z * roi.box_size;
-
-        float score = landmarks[i][3]; // Use visibility as score
-
-        pose.landmarks[i] = {(double)new_x, (double)new_y, (double)new_z, (double)score};
-    }
-
-    pose_res.push_back(pose);
-    return pose_res;
-}
-
-std::vector<std::vector<float>> load_detections(const std::string &txt_path)
-{
-    std::vector<std::vector<float>> detections;
-    std::ifstream ifs(txt_path);
-
-    for (std::string line; std::getline(ifs, line);)
-    {
-        std::istringstream iss(line);
-        std::vector<float> det;
-        float val;
-
-        while (iss >> val)
-        {
-            det.push_back(val);
-        }
-
-        if (!det.empty())
-        {
-            detections.push_back(det);
-        }
-    }
-
-    return detections;
-}
-
-cv::Mat draw_landmarks(cv::Mat image, const std::vector<BlazePoseLandmark> &landmarks, float score_threshold)
-{
-    cv::Mat out = image.clone();
-
-    for (const auto &lm : landmarks)
-    {
-        const auto &lms = lm.landmarks;
-
-        for (size_t i = 0; i < lms.size(); ++i)
-        {
-            int x = static_cast<int>(lms[i][0]);
-            int y = static_cast<int>(lms[i][1]);
-            double v = lms[i][3];
-
-            if (v < score_threshold)
+            if (landmark_a.visibility < visibility_threshold ||
+                landmark_b.visibility < visibility_threshold)
                 continue;
 
-            cv::circle(out, cv::Point(x, y), 3, cv::Scalar(0, 255, 0), -1);
+            cv::Point point_a(static_cast<int>(landmark_a.x * image.cols),
+                              static_cast<int>(landmark_a.y * image.rows));
+
+            cv::Point point_b(static_cast<int>(landmark_b.x * image.cols),
+                              static_cast<int>(landmark_b.y * image.rows));
+
+            cv::line(result_image, point_a, point_b, cv::Scalar(0, 255, 0), 2);
         }
 
-        for (const auto &conn : POSE_CONNECTIONS)
+        for (const auto &landmark : result.landmarks)
         {
-            int i0 = conn.first;
-            int i1 = conn.second;
-
-            if (i0 >= lms.size() || i1 >= lms.size())
+            if (landmark.visibility < visibility_threshold)
                 continue;
 
-            if (lms[i0][3] < score_threshold || lms[i1][3] < score_threshold)
-                continue;
+            int x = static_cast<int>(landmark.x * image.cols);
+            int y = static_cast<int>(landmark.y * image.rows);
 
-            cv::Point p0(static_cast<int>(lms[i0][0]), static_cast<int>(lms[i0][1]));
-            cv::Point p1(static_cast<int>(lms[i1][0]), static_cast<int>(lms[i1][1]));
-
-            cv::line(out, p0, p1, cv::Scalar(255, 0, 0), 2);
+            if (x >= 0 && x < image.cols && y >= 0 && y < image.rows)
+                cv::circle(result_image, cv::Point(x, y), 3, cv::Scalar(0, 0, 255), -1);
         }
     }
 
-    return out;
+    return result_image;
 }

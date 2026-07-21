@@ -18,18 +18,14 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <tuple>
-#include <iomanip>
-#include <fstream>
 #include <opencv2/opencv.hpp>
 #include <filesystem>
 #include "postprocess.h"
 #include "nnsdk2.h"
 #include "model_loader.h"
 
-const int MODEL_INPUT_WIDTH = 256;
-const int MODEL_INPUT_HEIGHT = 256;
-const float SCORE_THRESHOLD = 0.5f;
+const float PRESENCE_THRESHOLD = 0.5f;
+const float VISIBILITY_THRESHOLD = 0.5f;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
@@ -41,13 +37,11 @@ int main(int argc, char **argv)
     }
 
     std::string model_path = argv[1];
-    std::string det_dir = argv[3];
+    std::string detections_dir = argv[3];
 
-    std::cout << "Blazepose Landmark Demo" << std::endl;
-
+    std::cout << "BlazePose Landmark Demo" << std::endl;
     fs::create_directory("blazepose_landmark_result");
 
-    // 1. Initialize Network
     void *context = nullptr;
     int ret = init_network(model_path, context);
 
@@ -57,44 +51,43 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    // Query IO numbers
     amlnn_input_output_num io_num;
     amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
 
-    int landmarks_idx = -1;
-    int heatmap_idx = -1;
-
-    for (int i = 0; i < io_num.n_output; i++)
+    if (io_num.n_output != 5)
     {
-        amlnn_tensor_attr attr;
-        memset(&attr, 0, sizeof(attr));
-        attr.index = i;
-        amlnn_query(context, AMLNN_QUERY_OUTPUT_ATTR, &attr, sizeof(attr));
-
-        if (attr.n_elems == 195)
-        {
-            // 39 keypoints * 5 dims (x, y, z, vis, presence)
-            landmarks_idx = i;
-        }
-        else if (attr.n_elems == 159744)
-        {
-            // Actual Heatmap (64x64x39)
-            heatmap_idx = i;
-        }
-    }
-
-    if (landmarks_idx == -1) {
-        std::cerr << "Error: Could not find landmark output tensor (size 195)!" << std::endl;
+        std::cerr << "Expected 5 BlazePose landmark outputs, got " << io_num.n_output << std::endl;
+        uninit_network(context);
         return -1;
     }
 
-    std::cout << "Mapped Landmarks to output index: " << landmarks_idx
-              << ", Heatmap to output index: " << heatmap_idx << std::endl;
-
-    // Query Input Attribute for Scale and Zero Point
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
+    std::vector<int> input_shape = get_tensor_shape(input_attr);
 
-    // Ensure API outputs Float32 directly
+    if (input_shape.size() < 2)
+    {
+        std::cerr << "Invalid input shape." << std::endl;
+        uninit_network(context);
+        return -1;
+    }
+
+    int input_height = input_shape[0];
+    int input_width = input_shape[1];
+
+    std::cout << "Input shape: [" << input_height << ", " << input_width << ", 3]" << std::endl;
+
+    if (input_height != 256 || input_width != 256)
+    {
+        std::cerr << "Expected a 256x256 BlazePose landmark input." << std::endl;
+        uninit_network(context);
+        return -1;
+    }
+
+    std::vector<std::vector<int>> out_shapes;
+
+    for (int i = 0; i < io_num.n_output; ++i)
+        out_shapes.push_back(get_tensor_shape(query_output_attr(context, i)));
+
     std::vector<amlnn_output> outData(io_num.n_output);
 
     for (auto &it : fs::directory_iterator(argv[2]))
@@ -102,68 +95,79 @@ int main(int argc, char **argv)
         if (!it.is_regular_file())
             continue;
 
-        // 2. Load Image
-        cv::Mat img = cv::imread(it.path().string());
-        if (img.empty())
+        cv::Mat image = cv::imread(it.path().string());
+
+        if (image.empty())
             continue;
+
+        std::string filename = it.path().stem().string();
+        std::string txt_path = (fs::path(detections_dir) / (filename + "_det.txt")).string();
+        std::vector<Detection> detections = load_detections(txt_path);
+
+        if (detections.empty())
+        {
+            std::cout << "No detections found for " << filename << ", skipping..." << std::endl;
+            continue;
+        }
 
         std::cout << "============================================================" << std::endl;
         std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
         std::cout << "============================================================" << std::endl;
 
-        // Load detection text file
-        std::string filename = it.path().stem().string();
-        std::string txt_path = det_dir + "/" + filename + ".txt";
-        auto detections = load_detections(txt_path);
+        std::vector<PoseResult> results;
+        double total_inference_time = 0.0;
 
-        if (detections.empty())
+        for (const auto &detection : detections)
         {
-            std::cout << "No detections found, skipping..." << std::endl;
-            continue;
+            Roi roi = detection_to_roi(detection, image.cols, image.rows);
+            cv::Mat preprocessed = preprocess(image, roi, {input_height, input_width});
+            std::vector<uint8_t> prepared_data = prepare_input_tensor(preprocessed, input_attr);
+
+            if (prepared_data.empty())
+            {
+                std::cerr << "Failed to prepare input tensor." << std::endl;
+                continue;
+            }
+
+            auto start_time = std::chrono::high_resolution_clock::now();
+
+            if (!run_network(context, prepared_data.data(), prepared_data.size(), outData))
+            {
+                std::cerr << "Failed to run network." << std::endl;
+                uninit_network(context);
+                return -1;
+            }
+
+            auto end_time = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
+            total_inference_time += inference_time.count();
+
+            std::vector<float *> out_ptrs;
+
+            for (int i = 0; i < io_num.n_output; ++i)
+                out_ptrs.push_back(static_cast<float *>(outData[i].buf));
+
+            PoseResult result;
+
+            if (postprocess(out_ptrs, out_shapes, roi, image.cols, image.rows, PRESENCE_THRESHOLD, result))
+                results.push_back(result);
         }
 
-        // 3. Preprocess
-        auto [preprocessed, roi] = preprocess(img, detections, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-        cv::Mat quantized_img = quantize_input(preprocessed, input_attr);
+        std::cout << "Poses: " << results.size() << std::endl;
+        std::cout << "Total landmark inference time: " << total_inference_time << " ms" << std::endl;
 
-        // 4. Set input, run inference, and Get Outputs
-        auto start_time = std::chrono::high_resolution_clock::now();
+        cv::Mat result_image = draw_detections(image, results, VISIBILITY_THRESHOLD);
+        std::string result_path = "blazepose_landmark_result/" + filename + "_result.jpg";
+        std::string landmark_path = "blazepose_landmark_result/" + filename + "_landmarks.txt";
 
-        size_t input_size = input_attr.n_elems * sizeof(int8_t);
-        if (!run_network(context, quantized_img.data, input_size, outData))
-        {
-            std::cerr << "Failed to run network" << std::endl;
-            return -1;
-        }
+        cv::imwrite(result_path, result_image);
+        save_landmarks(landmark_path, results);
 
-        if (outData.empty())
-        {
-            return -1;
-        }
-
-        auto end_time = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double, std::milli> inference_time = end_time - start_time;
-        std::cout << "Inference time: " << inference_time.count() << " ms" << std::endl;
-
-        // 5. Postprocess (Direct Float Cast)
-        std::vector<BlazePoseLandmark> landmarks = postprocess(
-            (float *)outData[landmarks_idx].buf, // Dynamically found landmarks
-            (float *)outData[heatmap_idx].buf,   // Dynamically found heatmap / presence
-            roi);
-        std::cout << "Landmarks extracted successfully!" << std::endl;
-
-        // 6. Draw and Save
-        cv::Mat result_img = draw_landmarks(img, landmarks, SCORE_THRESHOLD);
-        std::string out_path = "blazepose_landmark_result/" + it.path().filename().string();
-        cv::imwrite(out_path, result_img);
-        std::cout << "Result saved to: " << out_path << std::endl;
+        std::cout << "Result saved to: " << result_path << std::endl;
+        std::cout << "Landmarks saved to: " << landmark_path << std::endl;
     }
 
-    std::cout << "============================================================" << std::endl
-              << std::endl;
-
-    // 7. Cleanup
+    std::cout << "============================================================" << std::endl << std::endl;
     uninit_network(context);
-
     return 0;
 }

@@ -14,37 +14,66 @@
  * limitations under the License.
  */
 
-#pragma once
-#include <vector>
+#ifndef POSTPROCESS_H
+#define POSTPROCESS_H
+
+#include <array>
+#include <cstdint>
 #include <string>
 #include <tuple>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include "nnsdk2.h"
 
-const int NUM_LANDMARKS = 39;
-const int LANDMARK_FEATURE_DIM = 5;
-const int IMAGE_SIZE = 256;
+const int NUM_DETECTION_COORDS = 12;
+const int NUM_MODEL_LANDMARKS = 39;
+const int NUM_POSE_LANDMARKS = 33;
 
-// Struct for ROI
-struct ROI {
-    float x_center;
-    float y_center;
-    float box_size;
-    float rotation;
+struct Detection
+{
+    std::array<float, NUM_DETECTION_COORDS> coords{};
+    float score = 0.0f;
 };
 
-// Struct for Landmarks
-struct BlazePoseLandmark {
-    std::vector<std::vector<double>> landmarks;
+struct Roi
+{
+    float center_x = 0.0f;
+    float center_y = 0.0f;
+    float size = 0.0f;
+    float rotation = 0.0f;
 };
 
-// Function Declarations
-std::vector<std::vector<float>> load_detections(const std::string& txt_path);
+struct Landmark
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float visibility = 0.0f;
+    float presence = 0.0f;
+    cv::Point3f world{};
+};
 
-std::tuple<cv::Mat, ROI> preprocess(cv::Mat img, std::vector<std::vector<float>> &detections, std::tuple<int, int> new_shape);
+struct PoseResult
+{
+    float score = 0.0f;
+    std::array<Landmark, NUM_POSE_LANDMARKS> landmarks{};
+};
 
-cv::Mat quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr& attr);
+std::vector<int> get_tensor_shape(const amlnn_tensor_attr &attr);
+std::vector<Detection> load_detections(const std::string &path);
+Roi detection_to_roi(const Detection &detection, int image_width, int image_height);
+cv::Mat preprocess(const cv::Mat &image, const Roi &roi, std::tuple<int, int> new_shape);
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 
-std::vector<BlazePoseLandmark> postprocess(float *raw_landmarks, float *raw_heatmap, const ROI &roi);
+bool postprocess(const std::vector<float *> &out_ptrs,
+                 const std::vector<std::vector<int>> &out_shapes,
+                 const Roi &roi, int image_width, int image_height,
+                 float presence_threshold, PoseResult &result);
 
-cv::Mat draw_landmarks(cv::Mat image, const std::vector<BlazePoseLandmark> &landmarks, float score_threshold);
+bool save_landmarks(const std::string &path, const std::vector<PoseResult> &results);
+
+cv::Mat draw_detections(const cv::Mat &image,
+                        const std::vector<PoseResult> &results,
+                        float visibility_threshold = 0.5f);
+
+#endif

@@ -75,8 +75,8 @@ Run the ADLA export script from `examples/retinaface/py`:
 cd examples/retinaface/py
 python export_adla.py \
   --onnx ../model/retinaface_resnet50.onnx \
-  --dataset-path ../../../resource/COCO_subset.txt \
-  --target-platform 005 \
+  --dataset-path ../../../resource/detection_dataset.txt \
+  --target-platform 007 \
   --adla ../model/RetinaFace_int8_A311D2.adla
 ```
 

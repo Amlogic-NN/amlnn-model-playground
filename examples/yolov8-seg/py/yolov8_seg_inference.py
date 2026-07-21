@@ -19,293 +19,315 @@ import os
 import glob
 import argparse
 import cv2
+import colorsys
 from pathlib import Path
 from amlnn.api import AMLNN
 
-MEAN = np.array([0, 0, 0], dtype=np.float32)
-STD  = np.array([255, 255, 255], dtype=np.float32)
+CLASS_NAMES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane',
+    'bus', 'train', 'truck', 'boat', 'traffic light',
+    'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird',
+    'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
+    'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat',
+    'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle',
+    'wine glass', 'cup', 'fork', 'knife', 'spoon',
+    'bowl', 'banana', 'apple', 'sandwich', 'orange',
+    'broccoli', 'carrot', 'hot dog', 'pizza', 'doughnut',
+    'cake', 'chair', 'couch', 'potted plant', 'bed',
+    'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+    'remote', 'keyboard', 'cell phone', 'microwave', 'oven',
+    'toaster', 'sink', 'refrigerator', 'book', 'clock',
+    'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+]
 
-class_names = {
-    0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane',
-    5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light',
-    10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird',
-    15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow',
-    20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack',
-    25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee',
-    30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat',
-    35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle',
-    40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon',
-    45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange',
-    50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'doughnut',
-    55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed',
-    60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse',
-    65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven',
-    70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock',
-    75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'
-}
-
-
-def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
-    shape = img.shape[:2]  # [height, width]
+def letterbox(img, new_shape, color=(114, 114, 114)):
+    shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
     new_unpad = (int(round(shape[1] * scale)), int(round(shape[0] * scale)))
-    pad_w = (new_shape[1] - new_unpad[0]) / 2
-    pad_h = (new_shape[0] - new_unpad[1]) / 2
 
     if shape[::-1] != new_unpad:
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
 
-    top, bottom = int(round(pad_h - 0.1)), int(round(pad_h + 0.1))
-    left, right = int(round(pad_w - 0.1)), int(round(pad_w + 0.1))
+    pad_h = new_shape[0] - new_unpad[1]
+    pad_w = new_shape[1] - new_unpad[0]
+    top = pad_h // 2
+    bottom = pad_h - top
+    left = pad_w // 2
+    right = pad_w - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
-
     return img, scale, (left, top)
 
-def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.003789, zp=-128, tensor_type=2):
+def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     original_img = cv2.imread(str(img_path))
     if original_img is None:
         raise ValueError(f"can't read image: {img_path}")
 
-    processed_img, scale, pad = letterbox(original_img, new_shape)
+    processed_img, resize_scale, pad = letterbox(original_img, new_shape)
     rgb_img = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
-    normalized_img = rgb_img.astype(np.float32) / 255.0
+    rgb_float = rgb_img.astype(np.float32)
 
-    if data_format == 'NCHW':
-        input_tensor = np.transpose(normalized_img, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-    elif data_format == 'NHWC':
-        input_tensor = np.expand_dims(normalized_img, axis=0)
+    # Normalize float input or quantize with the model's scale and zero point.
+    if tensor_type == 0:
+        input_tensor = rgb_float / 255.0
+    elif tensor_type in (2, 3, 4):
+        inv_scale = np.float32(1.0 / (255.0 * scale))
+        raw_value = np.round(rgb_float * inv_scale + zero_point)
+
+        if tensor_type == 2:
+            input_tensor = np.clip(raw_value, -128, 127).astype(np.int8)
+        elif tensor_type == 3:
+            input_tensor = np.clip(raw_value, 0, 255).astype(np.uint8)
+        else:
+            input_tensor = np.clip(raw_value, -32768, 32767).astype(np.int16)
     else:
-        raise ValueError(f"Unsupported data format: {data_format}.")
+        raise ValueError(f"Does not support tensor type: {tensor_type}")
 
-    raw_val = np.round(input_tensor / s + zp)
-    if tensor_type == 2:
-        input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
-    elif tensor_type == 3:
-        input_tensor = np.clip(raw_val, 0, 255).astype(np.uint8)
+    input_tensor = np.expand_dims(input_tensor, axis=0)
+    return input_tensor, original_img, resize_scale, pad
 
-    return input_tensor, original_img, scale, pad
+def postprocess(outputs, scale, pad, conf_threshold, iou_threshold):
+    if len(outputs) != 4:
+        raise ValueError(f"Expected 4 YOLOv8-Seg outputs, got {len(outputs)}")
 
+    # Fixed decoded layouts: [4,N], [80,N], [32,N], and [160,160,32].
+    bboxes = np.squeeze(outputs[0]).T
+    class_scores = np.squeeze(outputs[1]).T
+    mask_coefficients = np.squeeze(outputs[2]).T
+    prototype_mask = np.squeeze(outputs[3])
 
-def postprocess(outputs, scale, pad, strides=[8, 16, 32], conf_threshold=0.25, iou_threshold=0.7):
-    # 1. Extract and shape properly
+    num_predictions = bboxes.shape[0]
+    if bboxes.ndim != 2 or bboxes.shape[1] != 4:
+        raise ValueError(f"Unexpected bbox output shape: {outputs[0].shape}")
+    if class_scores.shape != (num_predictions, len(CLASS_NAMES)):
+        raise ValueError(f"Unexpected class output shape: {outputs[1].shape}")
+    if mask_coefficients.shape != (num_predictions, 32):
+        raise ValueError(f"Unexpected mask coefficient shape: {outputs[2].shape}")
+    if prototype_mask.shape != (160, 160, 32):
+        raise ValueError(f"Unexpected prototype output shape: {outputs[3].shape}")
 
-    # Bounding boxes
-    bboxes = np.squeeze(outputs[0])      # (4, 8400)
-    bboxes = bboxes.T                    # (8400, 4)
+    scores = np.max(class_scores, axis=1)
+    class_ids = np.argmax(class_scores, axis=1)
+    valid_indices = np.where(scores > conf_threshold)[0]
+    if len(valid_indices) == 0:
+        return [], prototype_mask
 
-    # Class scores
-    class_scores = np.squeeze(outputs[1])   # (80, 8400)
-    class_scores = class_scores.T           # (8400, 80)
+    bboxes = bboxes[valid_indices]
+    scores = scores[valid_indices]
+    class_ids = class_ids[valid_indices]
+    mask_coefficients = mask_coefficients[valid_indices]
 
-    # Mask coefficients
-    mask_coeff = np.squeeze(outputs[2])      # (32, 8400)
-    mask_coeff = mask_coeff.T                 # (8400, 32)
-
-    # Prototype masks
-    proto_mask = np.squeeze(outputs[3])     # (160, 160, 32)
-    proto_mask = proto_mask.transpose(2,0,1) # (32, 160, 160)
-
-    # 2. Filter out low confidence detections
-    max_scores = np.max(class_scores, axis=1)
-    mask = max_scores > conf_threshold
-
-    filtered_bboxes = bboxes[mask]
-    filtered_class_scores = class_scores[mask]
-    filtered_mask_coeff = mask_coeff[mask]
-
-    if len(filtered_bboxes) == 0:
-        return []
-
-    # 3. Process Bounding Boxes (cx, cy, w, h -> x1, y1, x2, y2)
-    cx, cy, w, h = filtered_bboxes[:, 0], filtered_bboxes[:, 1], filtered_bboxes[:, 2], filtered_bboxes[:, 3]
-
+    # Convert decoded XYWH boxes back to original-image coordinates.
     pad_x, pad_y = pad
-    x1 = (cx - w/2 - pad_x) / scale
-    y1 = (cy - h/2 - pad_y) / scale
-    x2 = (cx + w/2 - pad_x) / scale
-    y2 = (cy + h/2 - pad_y) / scale
-    w /= scale
-    h /= scale
+    center_x = bboxes[:, 0]
+    center_y = bboxes[:, 1]
+    width = bboxes[:, 2]
+    height = bboxes[:, 3]
+    x1 = (center_x - width / 2.0 - pad_x) / scale
+    y1 = (center_y - height / 2.0 - pad_y) / scale
+    x2 = (center_x + width / 2.0 - pad_x) / scale
+    y2 = (center_y + height / 2.0 - pad_y) / scale
+    boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
+    boxes_xywh = np.stack([x1, y1, width / scale, height / scale], axis=1)
 
-    boxes_xyxy_scaled = np.stack([x1, y1, x2, y2], axis=1)
-    boxes_xywh_scaled = np.stack([x1, y1, w, h], axis=1)
+    # Run NMS separately for each class.
+    selected_indices = []
+    for class_id in np.unique(class_ids):
+        class_indices = np.where(class_ids == class_id)[0]
+        nms_indices = cv2.dnn.NMSBoxes(
+            boxes_xywh[class_indices].tolist(), scores[class_indices].tolist(),
+            conf_threshold, iou_threshold
+        )
+        if len(nms_indices) > 0:
+            selected_indices.extend(class_indices[nms_indices.flatten()].tolist())
 
-    # 5. NMS
-    indices = cv2.dnn.NMSBoxes(
-        boxes_xywh_scaled.tolist(),
-        np.max(filtered_class_scores, axis=1).tolist(),
-        conf_threshold,
-        iou_threshold
-    )
-
+    selected_indices.sort(key=lambda idx: float(scores[idx]), reverse=True)
     detections = []
-    if len(indices) > 0:
-        for idx in indices.flatten():
-            detections.append({
-                'bbox': boxes_xyxy_scaled[idx].tolist(),
-                'class_id': np.argmax(filtered_class_scores[idx]),
-                'score': float(np.max(filtered_class_scores[idx])),
-                'mask_coeff': filtered_mask_coeff[idx].tolist()
-            })
+    for detection_idx in selected_indices:
+        class_id = int(class_ids[detection_idx])
+        detections.append({
+            'bbox': boxes_xyxy[detection_idx].tolist(),
+            'confidence': float(scores[detection_idx]),
+            'class_id': class_id,
+            'class_name': CLASS_NAMES[class_id],
+            'mask_coefficients': mask_coefficients[detection_idx].copy()
+        })
 
-    return detections, proto_mask
+    return detections, prototype_mask
 
+def sigmoid(values):
+    return 1.0 / (1.0 + np.exp(-np.clip(values, -80.0, 80.0)))
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-def draw_mask(img, mask_coeff, proto_mask, scale, pad, color, alpha=0.5):
-    """
-    Draws mask on the image
-    """
-    orig_h, orig_w = img.shape[:2]
+def draw_mask(
+    img, mask_coefficients, prototype_mask, bbox, input_shape,
+    scale, pad, color, alpha
+):
+    original_h, original_w = img.shape[:2]
+    input_h, input_w = input_shape
     pad_x, pad_y = pad
 
-    # 1. Build raw mask from prototypes
-    mask = np.tensordot(mask_coeff, proto_mask, axes=1)
+    # Prototype is NHWC, so coefficients contract against its final axis.
+    mask = np.tensordot(prototype_mask, mask_coefficients, axes=([2], [0]))
     mask = sigmoid(mask)
+    mask_input = cv2.resize(mask, (input_w, input_h), interpolation=cv2.INTER_LINEAR)
 
-    # 2. Upscale mask to the model input size (640x640)
-    input_size = 640
-    mask_640 = cv2.resize(mask, (input_size, input_size), interpolation=cv2.INTER_LINEAR)
+    # Remove the exact letterbox region, including asymmetric one-pixel padding.
+    resized_w = int(round(original_w * scale))
+    resized_h = int(round(original_h * scale))
+    crop_x1 = int(pad_x)
+    crop_y1 = int(pad_y)
+    crop_x2 = min(input_w, crop_x1 + resized_w)
+    crop_y2 = min(input_h, crop_y1 + resized_h)
+    mask_cropped = mask_input[crop_y1:crop_y2, crop_x1:crop_x2]
+    if mask_cropped.size == 0:
+        return img
 
-    # 3. Crop out the letterbox padding
-    y1, y2 = int(pad_y), int(input_size - pad_y)
-    x1, x2 = int(pad_x), int(input_size - pad_x)
-
-    # Safety check to ensure we don't crop outside bounds
-    y1, y2 = max(0, y1), min(input_size, y2)
-    x1, x2 = max(0, x1), min(input_size, x2)
-
-    mask_cropped = mask_640[y1:y2, x1:x2]
-
-    # 4. Resize to match original image dimensions
-    final_mask = cv2.resize(mask_cropped, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
-
-    # 5. Create a Boolean mask
-    # Values > 0.5 are the object, < 0.5 is background
+    final_mask = cv2.resize(mask_cropped, (original_w, original_h), interpolation=cv2.INTER_LINEAR)
     binary_mask = final_mask > 0.5
 
-    # 6. Create an image-sized green overlay
+    # YOLOv8 masks are cropped to their corresponding detection boxes.
+    box_x1 = max(0, int(np.floor(bbox[0])))
+    box_y1 = max(0, int(np.floor(bbox[1])))
+    box_x2 = min(original_w, int(np.ceil(bbox[2])))
+    box_y2 = min(original_h, int(np.ceil(bbox[3])))
+    bbox_mask = np.zeros((original_h, original_w), dtype=bool)
+    if box_x2 > box_x1 and box_y2 > box_y1:
+        bbox_mask[box_y1:box_y2, box_x1:box_x2] = True
+    binary_mask &= bbox_mask
+
+    if not np.any(binary_mask):
+        return img
+
     colored_mask = np.zeros_like(img, dtype=np.uint8)
-    colored_mask[binary_mask] = color # Green in BGR
-
-    # Blend the FULL images together
-    blended = cv2.addWeighted(img, 1.0, colored_mask, alpha, 0)
-
-    # Only update the original image where the mask exists
+    colored_mask[binary_mask] = color
+    blended = cv2.addWeighted(img, 1.0 - alpha, colored_mask, alpha, 0)
     result = img.copy()
     result[binary_mask] = blended[binary_mask]
-
     return result
 
-def get_class_color(class_id):
-    import colorsys
+def get_class_color_and_text_color(class_id):
     hue = (class_id * 137.508) % 360
-    rgb = colorsys.hsv_to_rgb(hue/360.0, 0.8, 0.9)
-    bgr = (int(rgb[2]*255), int(rgb[1]*255), int(rgb[0]*255))
-    return bgr
+    rgb = colorsys.hsv_to_rgb(hue / 360.0, 0.8, 0.9)
+    bgr = (int(rgb[2] * 255), int(rgb[1] * 255), int(rgb[0] * 255))
+    text_color = (255, 255, 255) if sum(bgr) < 400 else (0, 0, 0)
+    return bgr, text_color
 
+def draw_detections(
+    img, detections, prototype_mask, input_shape, scale, pad,
+    mask_alpha=0.5, save_path=None, in_place=False
+):
+    result_img = img if in_place else img.copy()
 
-def draw_detections(img, detections, proto_mask, scale, pad, save_path):
-    result_img = img.copy()
+    # Draw masks first so bounding boxes and labels remain visible.
+    for detection in detections:
+        color, _ = get_class_color_and_text_color(detection['class_id'])
+        result_img = draw_mask(
+            result_img, detection['mask_coefficients'], prototype_mask,
+            detection['bbox'], input_shape, scale, pad, color, mask_alpha
+        )
 
-    print(f"    Drawing {len(detections)} detections")
-    for i, det in enumerate(detections):
-        x1, y1, x2, y2 = [int(coord) for coord in det['bbox']]
-        class_id = det['class_id']
-        score = det['score']
-        mask_coeff = det['mask_coeff']
+    for detection in detections:
+        x1, y1, x2, y2 = [int(value) for value in detection['bbox']]
+        confidence = detection['confidence']
+        class_name = detection['class_name']
+        color, text_color = get_class_color_and_text_color(detection['class_id'])
 
-        print(f"    Detection {i+1}:")
-        print(f"      BBox: [{x1}, {y1}, {x2}, {y2}]")
-        print(f"      Score: {score:.4f}")
-
-        color = get_class_color(class_id)
-
-        # Draw Bounding Box
         cv2.rectangle(result_img, (x1, y1), (x2, y2), color, 2)
-
-        # Draw Label
-        label = f"{class_names[class_id]}: {score:.2f}"
+        label = f"{class_name}: {confidence:.2f}"
         (label_w, label_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
-        cv2.rectangle(result_img, (x1, y1 - label_h - 10), (x1 + label_w, y1), color, -1)
-        text_color = (255, 255, 255) if sum(color) < 400 else (0, 0, 0)
-        cv2.putText(result_img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
+        label_x = max(0, x1)
+        label_y = max(y1, label_h + 10)
+        cv2.rectangle(
+            result_img, (label_x, label_y - label_h - 10),
+            (label_x + label_w, label_y), color, cv2.FILLED
+        )
+        cv2.putText(
+            result_img, label, (label_x, label_y - 5), cv2.FONT_HERSHEY_SIMPLEX,
+            0.6, text_color, thickness=1, lineType=cv2.LINE_AA
+        )
 
-        result_img = draw_mask(result_img, mask_coeff, proto_mask, scale, pad, color=color)
+    if save_path:
+        cv2.imwrite(save_path, result_img)
 
-    cv2.imwrite(save_path, result_img)
-    print(f"    Image saved to: {save_path}")
     return result_img
 
-
 def main():
-    parser = argparse.ArgumentParser(description="Yolov8-seg Demo")
+    parser = argparse.ArgumentParser(description="YOLOv8-Seg Demo")
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
+    parser.add_argument('--conf', type=float, default=0.25)
+    parser.add_argument('--nms', type=float, default=0.45)
+    parser.add_argument('--mask-alpha', type=float, default=0.5)
     args = parser.parse_args()
 
     amlnn = AMLNN()
-
     amlnn.init_runtime(mode="native", enable_perf=True)
-
     amlnn.load_model(path=args.model_path)
-
     tensor_info = amlnn.get_tensor_info()
-
     print(amlnn.get_sdk_version())
 
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
     image_files = []
-    for ext in image_extensions:
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
-        image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
+    for extension in ["*.jpg", "*.jpeg", "*.png", "*.bmp"]:
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension)))
+        image_files.extend(glob.glob(os.path.join(args.image_dir, extension.upper())))
 
     if not image_files:
         print(f"No image files found in {args.image_dir}")
+        amlnn.uninit()
         return 0
 
     print(f"Found {len(image_files)} image file(s) to process:")
-    for img_file in image_files:
-        print(f"  - {os.path.basename(img_file)}")
+    for image_path in image_files:
+        print(f"  - {os.path.basename(image_path)}")
     print()
 
     tensor_attr = tensor_info["inputs"][0]
-    s = float(tensor_attr["scale"])
-    zp = int(tensor_attr["zp"])
+    input_h = int(tensor_attr["dims"][1])
+    input_w = int(tensor_attr["dims"][2])
+    input_shape = (input_h, input_w)
+    input_scale = float(tensor_attr["scale"])
+    input_zero_point = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
 
-    for i, image_path in enumerate(image_files, 1):
-        print(f"=" * 60)
-        print(f"Processing image {i}/{len(image_files)}: {os.path.basename(image_path)}")
-        print(f"=" * 60)
+    for image_idx, image_path in enumerate(image_files, 1):
+        print("=" * 60)
+        print(f"Processing image {image_idx}/{len(image_files)}: {os.path.basename(image_path)}")
+        print("=" * 60)
 
         try:
-            input_tensor, original_img, scale, pad = preprocess(
-                image_path, new_shape=(640, 640), data_format = "NHWC", s=s, zp=zp, tensor_type=tensor_type
+            input_tensor, original_img, resize_scale, pad = preprocess(
+                image_path, input_shape, input_scale, input_zero_point, tensor_type
+            )
+            outputs = amlnn.inference(inputs=[input_tensor])
+            detections, prototype_mask = postprocess(
+                outputs, resize_scale, pad, args.conf, args.nms
             )
 
-            outputs = amlnn.inference(inputs=[input_tensor])
+            if detections:
+                print(f"    Detected {len(detections)} objects:")
+                for detection_idx, detection in enumerate(detections, 1):
+                    print(
+                        f"      {detection_idx}. {detection['class_name']} "
+                        f"({detection['confidence']:.2f})"
+                    )
+            else:
+                print("    No objects detected")
 
-            detections, proto_mask = postprocess(outputs, scale, pad, conf_threshold=0.25, iou_threshold=0.45)
-
-            model_name = Path(args.model_path).stem
-            result_dir = f"{model_name}_result"
+            result_dir = f"{Path(args.model_path).stem}_result"
             os.makedirs(result_dir, exist_ok=True)
-            img_name = Path(image_path).stem
-            save_path = os.path.join(result_dir, f"{img_name}_result.jpg")
-
-            draw_detections(original_img, detections, proto_mask, scale, pad, str(save_path))
-
-        except Exception as e:
-            print(f"Error processing {os.path.basename(image_path)}: {e}")
+            save_path = os.path.join(result_dir, f"{Path(image_path).stem}_result.jpg")
+            draw_detections(
+                original_img, detections, prototype_mask, input_shape,
+                resize_scale, pad, args.mask_alpha, save_path=save_path
+            )
+            print(f"    Result saved to: {save_path}")
+        except Exception as error:
+            print(f"Error processing {os.path.basename(image_path)}: {error}")
 
         print()
-        
-    print(f"=" * 60)
+
+    print("=" * 60)
     print(amlnn.get_perf_info())
     amlnn.perf_visualize()
     amlnn.uninit()

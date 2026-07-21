@@ -54,7 +54,7 @@ cd examples/blazepose_detect/py
 python export_adla.py \
   --model ../model/pose_detection_float32.tflite \
   --dataset-path ../../../resource/pose_dataset.txt \
-  --target-platform 005 \
+  --target-platform 007 \
   --adla ../model
 ```
 
@@ -74,11 +74,11 @@ examples/blazepose_detect/model/pose_detection_float32_w8a8.adla
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+- Required packages: `amlnn`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
+pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
 **Run on device:**
@@ -90,8 +90,11 @@ python blazepose_detect_inference.py \
 Argument Descriptions:
 | Argument         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
-|` --image-dir`   | Directory containing test images |
+| `--model-path` | The file path to the compiled detector model in `.adla` format. |
+| `--image-dir` | The path to the directory containing the test images to be processed. |
+| `--anchor-path` | (Optional) The file path to the NumPy file containing the anchor box coordinates for the detector. Defaults to `"anchors.npy"`. |
+| `--conf` | (Optional) The confidence score threshold filter; only detections with scores above this value are kept. Defaults to `0.5`. |
+| `--nms` | (Optional) The Intersection over Union (IoU) threshold used during Non-Maximum Suppression to filter out overlapping bounding boxes. Defaults to `0.3`. |
 
 The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
 
