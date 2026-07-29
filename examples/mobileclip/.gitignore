@@ -1,0 +1,12 @@
+cpp/build/
+cpp/flickr30k_test/
+docs/
+model/**
+!model/
+!model/.gitkeep
+py/export_onnx.py
+py/export_adla.py
+py/calib/
+py/flickr30k_test/
+cpp_nnsdk1/
+cpp_nnsdk1.zip

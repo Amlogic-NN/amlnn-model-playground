@@ -1,0 +1,17 @@
+cpp/build/
+cpp/nnsdk1.diff
+model/**
+!model/
+!model/.gitkeep
+input/**
+!input/
+!input/en.wav
+!input/zh.wav
+!input/ja.wav
+!input/ko.wav
+!input/yue.wav
+py/**
+!model/
+!py/export_adla.py
+!py/export-onnx-3input.py
+!py/sensevoice_inference.py

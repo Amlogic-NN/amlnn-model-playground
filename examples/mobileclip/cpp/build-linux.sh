@@ -29,7 +29,7 @@ usage() {
     echo "Environment variables:"
     echo "  AMLNN_HOME"
     echo "  PATH           (linux mode, add toolchain bin/ to PATH)"
-    echo "  GCC_COMPILER   (linux mode, optional override; default: aarch64-none-linux-gnu / arm-none-linux-gnueabihf)"
+    echo "  GCC_COMPILER   (linux mode, optional compiler prefix override)"
     echo "  YOCTO_SDK_ROOT (yocto mode)"
     exit 1
 }
@@ -80,7 +80,7 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
     fi
 
     CMAKE_BIN="${CMAKE_BIN:-cmake}"
-    YOCTO_SDK_ROOT="${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/data/yuandian/tools/poky/4.0.20}}"
+    YOCTO_SDK_ROOT="${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/mnt/fileroot/yuxuan.hu/my_poky_sdk}}"
     TOOLCHAIN_FILE="${CLI_TOOLCHAIN_FILE:-${TOOLCHAIN_FILE:-${ROOT_PWD}/../../cmake/yocto-toolchain.cmake}}"
 
     export YOCTO_SDK_ROOT
@@ -88,7 +88,7 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     BUILD_DIR="${ROOT_PWD}/build/yocto/${ARCH_BITS}"
 
-    echo "==> Building sensevoice for Yocto ${ARCH_BITS}-bit"
+    echo "==> Building mobileclip for Yocto ${ARCH_BITS}-bit"
     echo "    toolchain : ${TOOLCHAIN_FILE}"
     echo "    SDK root  : ${YOCTO_SDK_ROOT}"
     echo "    AMLNN_HOME: ${AMLNN_HOME:-<auto-detect>}"
@@ -96,7 +96,6 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
 
     mkdir -p "${BUILD_DIR}"
     rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
 
     "${CMAKE_BIN}" \
         -S "${ROOT_PWD}/src" \
@@ -117,14 +116,12 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
     fi
     STRIP_TOOL="${HOST_SYSROOT}/usr/bin/${CROSS_TRIPLE}/${CROSS_TRIPLE}-strip"
     if [[ -x "${STRIP_TOOL}" ]]; then
-        "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/sensevoice_demo"
+        "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/mobileclip_demo"
     else
         echo "warning: strip tool not found; keeping debug info." >&2
     fi
 
-    echo "Build complete."
-    echo "  Static library: ${BUILD_DIR}/libsensevoice.a"
-    echo "  Demo binary:    ${BUILD_DIR}/sensevoice_demo"
+    echo "Build complete. Executable: ${BUILD_DIR}/mobileclip_demo"
     exit 0
 fi
 
@@ -156,22 +153,24 @@ GCC_COMPILER=${GCC_COMPILER:-${DEFAULT_COMPILER}}
 if [[ "${GCC_COMPILER}" == *"-gcc" ]]; then
     export CC="${GCC_COMPILER}"
     export CXX="${GCC_COMPILER%-gcc}-g++"
+    STRIP_TOOL="${GCC_COMPILER%-gcc}-strip"
 else
     export CC="${GCC_COMPILER}-gcc"
     export CXX="${GCC_COMPILER}-g++"
+    STRIP_TOOL="${GCC_COMPILER}-strip"
 fi
 
 if ! command -v "${CC}" &> /dev/null; then
     echo "Error: Compiler '${CC}' not found."
     echo "Please add your toolchain 'bin' directory to your PATH, or set GCC_COMPILER."
-    echo "Example: export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:\$PATH"
+    echo "Example: export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:\$PATH"
     exit 1
 fi
 
 BUILD_DIR="${ROOT_PWD}/build/linux/${ARCH_BITS}"
 CMAKE_BIN="${CMAKE_BIN:-cmake}"
 
-echo "==> Building sensevoice for Linux ${ARCH_BITS}-bit"
+echo "==> Building mobileclip for Linux ${ARCH_BITS}-bit"
 echo "    COMPILER    : ${CC}"
 echo "    TARGET_ARCH : ${TARGET_ARCH}"
 echo "    AMLNN_HOME  : ${AMLNN_HOME:-<auto-detect>}"
@@ -179,17 +178,22 @@ echo "    BUILD_DIR   : ${BUILD_DIR}"
 
 mkdir -p "${BUILD_DIR}"
 
-"${CMAKE_BIN}" -Wno-dev \
+"${CMAKE_BIN}" \
     -S "${ROOT_PWD}/src" \
     -B "${BUILD_DIR}" \
     -DCMAKE_SYSTEM_NAME=Linux \
     -DCMAKE_SYSTEM_PROCESSOR="${TARGET_ARCH}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DARCH_BITS="${ARCH_BITS}" \
-    -DAMLNN_HOME="${AMLNN_HOME:-}"
+    -DAMLNN_HOME="${AMLNN_HOME:-}" \
+    -DCMAKE_CXX_FLAGS="-Wno-psabi"
 
-"${CMAKE_BIN}" --build "${BUILD_DIR}" -j"${JOBS}"
+"${CMAKE_BIN}" --build "${BUILD_DIR}" --config Release -j"${JOBS}"
 
-echo "Build complete."
-echo "  Static library: ${BUILD_DIR}/libsensevoice.a"
-echo "  Demo binary:    ${BUILD_DIR}/sensevoice_demo"
+if command -v "${STRIP_TOOL}" &> /dev/null; then
+    "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/mobileclip_demo"
+else
+    echo "warning: strip tool '${STRIP_TOOL}' not found; keeping debug info." >&2
+fi
+
+echo "Build complete. Executable: ${BUILD_DIR}/mobileclip_demo"

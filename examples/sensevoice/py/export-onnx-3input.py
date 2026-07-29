@@ -35,8 +35,39 @@ OUTPUT_DIR = os.path.join(current_dir, "onnx-3input")
 
 import onnx
 import torch
-from model import SenseVoiceSmall
 from onnxruntime.quantization import QuantType, quantize_dynamic
+
+
+def apply_pytorch_module_compat_patch() -> None:
+    """Work around model.py not calling super().__init__() in SinusoidalPositionEncoder.
+
+    PyTorch 2.12+ expects nn.Module subclasses to be fully initialized before
+    state_dict() is called during pretrained weight loading.
+    """
+    if getattr(apply_pytorch_module_compat_patch, "_applied", False):
+        return
+    apply_pytorch_module_compat_patch._applied = True
+
+    _orig_state_dict = torch.nn.Module.state_dict
+
+    def state_dict(self, *args, **kwargs):
+        if not hasattr(self, "_state_dict_pre_hooks"):
+            torch.nn.Module.__init__(self)
+        return _orig_state_dict(self, *args, **kwargs)
+
+    torch.nn.Module.state_dict = state_dict
+
+
+def load_model(model_id: str = "iic/SenseVoiceSmall"):
+    from funasr import AutoModel
+
+    apply_pytorch_module_compat_patch()
+    return AutoModel.build_model(
+        model=model_id,
+        trust_remote_code=True,
+        remote_code=os.path.join(current_dir, "model.py"),
+        device="cpu",
+    )
 
 
 def add_meta_data(filename: str, meta_data: Dict[str, Any]):
@@ -70,45 +101,24 @@ def modified_forward(
     Args:
       x: A 3-D tensor of shape (batch_size, sequence_length, feature_dim) with dtype torch.float32.
     """
-    device = next(self.embed.parameters()).device  # device of the embed weights
-    x = x.to(device)
-    language = language.to(device)
-    text_norm = text_norm.to(device)
+    device = x.device
+    x_length = torch.full(
+        (x.size(0),), x.shape[1], dtype=torch.int32, device=device
+    )
 
-    x_length = torch.full((1,), x.shape[1], dtype=torch.int32, device=device)  # 1-D tensor
-
-    # Extract integer values from tensors
-    # language_value = language.item() if language.dim() == 0 else language.tolist()
-    # text_norm_value = text_norm.item() if text_norm.dim() == 0 else text_norm.tolist()
-
-    # print(f">>>> language_value:{language_value}, text_norm_value:{text_norm_value}")
-
-
-    language_query = self.embed(language).unsqueeze(1)
-    textnorm_query = self.embed(text_norm).unsqueeze(1)
-    # language_query = self.embed(                                       ############################
-    #     torch.LongTensor(
-    #         [[language_value]]
-    #     ).to(device)
-    # ).repeat(x.size(0), 1, 1)
-
-    # # textnorm = "woitn"
-    # textnorm_query = self.embed(
-    #     torch.LongTensor([[text_norm_value]]).to(device)
-    # ).repeat(x.size(0), 1, 1)
+    language_query = self.embed(language.to(device)).unsqueeze(1)
+    textnorm_query = self.embed(text_norm.to(device)).unsqueeze(1)
 
     x = torch.cat((textnorm_query, x), dim=1)
-    x_length += 1
+    x_length = x_length + 1
 
-    event_emo_query = self.embed(torch.LongTensor([[1, 2]]).to(device)).repeat(
-        x.size(0), 1, 1
-    )
+    event_emo_query = self.embed(
+        torch.tensor([[1, 2]], dtype=torch.long, device=device)
+    ).repeat(x.size(0), 1, 1)
     input_query = torch.cat((language_query, event_emo_query), dim=1)
     x = torch.cat((input_query, x), dim=1)
-    x_length += 3
+    x_length = x_length + 3
 
-    print(f">>>> x.shape:{x.shape}, x_length.shape:{x_length.shape}")
-    print(f"x_length:{x_length}")
     encoder_out, encoder_out_lens = self.encoder(x, x_length)
     if isinstance(encoder_out, tuple):
         encoder_out = encoder_out[0]
@@ -163,37 +173,38 @@ def display_params(params):
 
 
 def main():
-    model, params = SenseVoiceSmall.from_pretrained(model="iic/SenseVoiceSmall")
-    # model, params = SenseVoiceSmall.from_pretrained(model="../SenseVoiceSmall")
+    model, params = load_model("iic/SenseVoiceSmall")
+    # model, params = load_model("../SenseVoiceSmall")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     display_params(params)
 
     generate_tokens(params, OUTPUT_DIR)
 
     model.__class__.forward = modified_forward
+    model.eval()
 
     x = torch.randn(1, 100, 560, dtype=torch.float32)
-    # x_length = torch.tensor([2, 100], dtype=torch.int32)
     language = torch.tensor([0], dtype=torch.int32)
     text_norm = torch.tensor([15], dtype=torch.int32)
 
     opset_version = 13
     filename = os.path.join(OUTPUT_DIR, "sensevoice_small.onnx")
-    torch.onnx.export(
-        model,
-        (x, language, text_norm),
-        filename,
-        opset_version=opset_version,
-        input_names=["x", "language", "text_norm"],
-        output_names=["logits"],
-        dynamic_axes={
-            "x": {0: "N", 1: "T"},
-            # "x_length": {0: "N"},
-            "language": {0: "N"},
-            "text_norm": {0: "N"},
-            "logits": {0: "N", 1: "T"},
-        },
-    )
+    with torch.inference_mode():
+        torch.onnx.export(
+            model,
+            (x, language, text_norm),
+            filename,
+            opset_version=opset_version,
+            input_names=["x", "language", "text_norm"],
+            output_names=["logits"],
+            dynamic_axes={
+                "x": {0: "N", 1: "T"},
+                "language": {0: "N"},
+                "text_norm": {0: "N"},
+                "logits": {0: "N", 1: "T"},
+            },
+            dynamo=False,
+        )
 
     lfr_window_size = params["frontend_conf"]["lfr_m"]
     lfr_window_shift = params["frontend_conf"]["lfr_n"]
