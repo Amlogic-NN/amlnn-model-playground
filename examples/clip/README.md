@@ -56,6 +56,10 @@ Text Onnx link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/cl
 
 Image Onnx link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx
 
+Quantized Text  Tflite link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/text_model_int8.tflite
+
+Quantized Image Tflite link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model_int8.tflite
+
 Tokenizer link: https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/clip_tokenizer.zip
 
 Note: place the unziped tokenizer folder in the model root directory.
@@ -99,7 +103,7 @@ python clip_inference.py \
     --image-model-path ../model/vision_model_w8a8.adla \
     --tokenizer-dir ../tokenizer/ \
     --image-dir ../input \
-    --text "a red bus" apple car person
+    --texts "a red bus" "apple" "car" "person"
 ```
 Argument Descriptions:
 | Argument         | Description                                                  |
@@ -118,6 +122,7 @@ The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, 
 ### Build For Android
 
 **Prerequisites:**
+
 - **Android NDK** (r27d recommended) installed on your system.
 - **AMLNN Toolkit** downloaded and extracted.
 
@@ -161,7 +166,7 @@ chmod +x clip_demo
 export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
 
 # Usage: ./clip_demo <vision_model> <text_model> <tokenizer_dir> <image_dir> [texts ...]
-./clip_demo vision_model_w8a8.adla text_model_w16a16.adla ../tokenizer/ ./input "a red bus" apple car person
+./clip_demo vision_model_w8a16.adla text_model_w8a16.adla ../tokenizer/ ./input "a red bus" "apple" "car" "person"
 ```
 
 **Note:** Replace `.adla` with your actual model file path.
@@ -208,7 +213,7 @@ GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 
 The executable will be generated at `build/linux/64/clip_demo` (or `build/linux/32/clip_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed
@@ -250,7 +255,7 @@ cd /data/local/tmp
 chmod +x clip_demo
 
 # Usage: ./clip_demo <vision_model> <text_model> <tokenizer_dir> <image_dir> [texts ...]
-./clip_demo vision_model_w8a8.adla text_model_w16a16.adla ../tokenizer/ ./input "a red bus" apple car person
+./clip_demo vision_model_w8a16.adla text_model_w8a16.adla ../tokenizer/ ./input "a red bus" "apple" "car" "person"
 ```
 **Note:** Replace `.adla` with your actual model file name.
 
@@ -266,37 +271,68 @@ By setting the loglevel to INFO, the program provides real-time performance metr
 **Interactive Mode Example:**
 
 ```bash
-$ ./clip_demo vision_model_int8_S905X5.adla text_model_int8_S905X5.adla ./tokenizer_path
+./clip_demo vision_model_w8a16.adla text_model_w8a16.adla ./tokenizer/ ./input "a red bus" "apple" "car" "person"               
 
-[Info] Models initialized successfully.
+[Info] CLIPTokenizer loaded: vocab_size=49408, merges=48894
+global_dependency_mode 2
+Compiler Config:
+  Compiler Version: 3.4.4
+  Target Version  : r4p0
+  Branch          : r3.4.x
+  Commit          : 8f52af
+  AXI SRAM Size   : 245760
+  Precise Mode    : true
+  Disable Fusion  : false
+ [adla_platform_open:215]LIBADLA, v2.0.2.0.0.0, 2026.04
 
+The minimum amount of memory needed for initializing the context is:
+        model alloc from os          0x00000000,( 0.00 MByte)
+        model alloc from drv         0x05c23cc0,(92.14 MByte)
+        model addition alloc from os 0x00172218,( 1.45 MByte)
+sys mem_available 4065556 KB (3970.27 MB)
+Evaluate the smmu_tlb_type is 0
+[ADLAU WARN]  [evaluate_addition_mem_usage:5185]
+Your model file may contain unnecessary data, which will cause waste of memory.
+It is recommended to check your settings when generate the model file.
+memory usage:
+        model alloc from os          0x00000000,( 0.00 MByte)
+        model alloc from drv         0x05c23cc0,(92.14 MByte)
+        model addition alloc from os  0x00327600,( 3.15 MByte)
+global_dependency_mode 2
+Compiler Config:
+  Compiler Version: 3.4.4
+  Target Version  : r4p0
+  Branch          : r3.4.x
+  Commit          : 8f52af
+  AXI SRAM Size   : 245760
+  Precise Mode    : true
+  Disable Fusion  : false
+ [adla_platform_open:215]LIBADLA, v2.0.2.0.0.0, 2026.04
+
+The minimum amount of memory needed for initializing the context is:
+        model alloc from os          0x00000000,( 0.00 MByte)
+        model alloc from drv         0x086536c0,(134.33 MByte)
+        model addition alloc from os 0x0010e0f0,( 1.05 MByte)
+sys mem_available 3955984 KB (3863.27 MB)
+Evaluate the smmu_tlb_type is 0
+[ADLAU WARN]  [evaluate_addition_mem_usage:5185]
+Your model file may contain unnecessary data, which will cause waste of memory.
+It is recommended to check your settings when generate the model file.
+memory usage:
+        model alloc from os          0x00000000,( 0.00 MByte)
+        model alloc from drv         0x086536c0,(134.33 MByte)
+        model addition alloc from os  0x0023d80c,( 2.24 MByte)
+image input elements: 150528, output elements: 512
+Text input elements: 64, output elements: 512
+Text prompts (4): "a red bus" "apple" "car" "person"
 ============================================================
-[Info] Image Path (or 'exit' to quit):
-test.jpg
-[Info] Enter text descriptions (comma-separated, or 'skip' for defaults):
-a red handbag, a blue jacket, a red bus
-
-[Info] Processing image: test.jpg
-[Info] Image embedding size: 512
-[Info] Processing 3 text(s)...
-[Info] Text embeddings size: 3 x 512
-
+Processing image: 000000004505.jpg
 ============================================================
 CLIP Image-Text Matching Results
+[1] prob=0.999647 sim=0.313948 text="a red bus"
+[2] prob=0.000242 sim=0.230669 text="car"
+[3] prob=0.000102 sim=0.222007 text="person"
+[4] prob=0.000010 sim=0.198454 text="apple"
 ============================================================
-Image: test.jpg
-logit_scale: 100.000000
-------------------------------------------------------------
-[1] prob=0.999975  sim=0.327895  text='a red bus'
-[2] prob=0.000016  sim=0.217690  text='a red handbag'
-[3] prob=0.000008  sim=0.211029  text='a blue jacket'
-============================================================
-
-============================================================
-[Info] Image Path (or 'exit' to quit):
-exit
-[Info] Exiting...
-Free image model memory.
-Free text model memory.
-[Info] Done.
+Processed 1 image(s)
 ```

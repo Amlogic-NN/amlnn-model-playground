@@ -209,8 +209,8 @@ def main():
     parser = argparse.ArgumentParser(description='PP-YOLOE Demo')
     parser.add_argument('--model-path', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
-    parser.add_argument('--conf', type=float, default=0.25)
-    parser.add_argument('--nms', type=float, default=0.6)
+    parser.add_argument('--conf', type=float, default=0.5)
+    parser.add_argument('--nms', type=float, default=0.2)
     args = parser.parse_args()
 
     amlnn = AMLNN()
@@ -248,8 +248,7 @@ def main():
             )
             outputs = amlnn.inference(inputs=[input_tensor])
             detections = postprocess(
-                outputs, input_shape, scale_x, scale_y, REG_MAX,
-                args.conf, args.nms
+                outputs, input_shape, scale_x, scale_y, args.conf, args.nms
             )
 
             print(f"Detected {len(detections)} objects")
@@ -260,7 +259,8 @@ def main():
             print(f"Result saved to: {save_path}")
         except Exception as error:
             print(f"Error processing {os.path.basename(image_path)}: {error}")
-
+        print()
+    print('=' * 60)
     print(amlnn.get_perf_info())
     amlnn.perf_visualize()
     amlnn.uninit()

@@ -30,7 +30,12 @@ const std::vector<std::string> KEYPOINT_NAMES = {
 const std::vector<std::pair<int, int>> SKELETON = {
     {0, 1}, {0, 2}, {1, 3}, {2, 4}, {5, 6}, {5, 7}, {7, 9}, {6, 8}, {8, 10}, {5, 11}, {6, 12}, {11, 12}, {11, 13}, {13, 15}, {12, 14}, {14, 16}};
 
-const float KEYPOINT_THRESHOLD = 0.5f;
+const int STRIDES[3] = {8, 16, 32};
+
+static float sigmoid(float value)
+{
+    return 1.0f / (1.0f + std::exp(-value));
+}
 
 static cv::Scalar get_color(float confidence)
 {
@@ -198,85 +203,152 @@ std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_
 
 std::vector<Detection> postprocess(
     const std::vector<float *> &out_ptrs, const std::vector<std::vector<int>> &out_shapes,
-    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-    float conf_thresh, float iou_threshold)
+    int input_h, int input_w, std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
+    float conf_thresh, float iou_threshold, int reg_max)
 {
     float scale = std::get<1>(input_tuple);
     int pad_left = std::get<0>(std::get<2>(input_tuple));
     int pad_top = std::get<1>(std::get<2>(input_tuple));
     std::vector<Detection> detections_orig;
 
-    if (out_ptrs.size() != 4 || out_shapes.size() != 4)
+    float safe_thresh = std::max(1e-5f, std::min(conf_thresh, 1.0f - 1e-5f));
+    float inv_thresh = std::log(safe_thresh / (1.0f - safe_thresh));
+    const int detection_channels = reg_max * 4 + 1;
+    const int keypoint_channels = NUM_KEYPOINTS * 3;
+
+    for (int s = 0; s < 3; ++s)
     {
-        std::cerr << "Expected exactly 4 YOLOv8-Pose outputs." << std::endl;
-        return {};
-    }
+        int detection_idx = s * 2;
+        int keypoint_idx = s * 2 + 1;
+        int stride = STRIDES[s];
 
-    // Shapes after singleton removal: [4,N], [N], [N,17], and [2,N,17].
-    if (out_shapes[1].size() != 1)
-    {
-        std::cerr << "Unexpected detection confidence output shape." << std::endl;
-        return {};
-    }
+        float *detection_data = out_ptrs[detection_idx];
+        float *keypoint_data = out_ptrs[keypoint_idx];
+        const auto &detection_shape = out_shapes[detection_idx];
+        const auto &keypoint_shape = out_shapes[keypoint_idx];
 
-    int num_predictions = out_shapes[1][0];
-    if (out_shapes[0].size() != 2 || out_shapes[0][0] != 4 ||
-        out_shapes[0][1] != num_predictions)
-    {
-        std::cerr << "Unexpected bbox output shape." << std::endl;
-        return {};
-    }
+        int height = 1;
+        int width = 1;
+        int channels = 1;
 
-    if (out_shapes[2].size() != 2 || out_shapes[2][0] != num_predictions ||
-        out_shapes[2][1] != NUM_KEYPOINTS)
-    {
-        std::cerr << "Unexpected keypoint confidence output shape." << std::endl;
-        return {};
-    }
-
-    if (out_shapes[3].size() != 3 || out_shapes[3][0] != 2 ||
-        out_shapes[3][1] != num_predictions || out_shapes[3][2] != NUM_KEYPOINTS)
-    {
-        std::cerr << "Unexpected keypoint coordinate output shape." << std::endl;
-        return {};
-    }
-
-    float *bbox_data = out_ptrs[0];
-    float *confidence_data = out_ptrs[1];
-    float *keypoint_confidence_data = out_ptrs[2];
-    float *keypoint_data = out_ptrs[3];
-    int keypoint_plane_size = num_predictions * NUM_KEYPOINTS;
-
-    // Outputs are decoded XYWH boxes, probabilities, and keypoint coordinates.
-    for (int prediction_idx = 0; prediction_idx < num_predictions; ++prediction_idx)
-    {
-        float confidence = confidence_data[prediction_idx];
-        if (confidence <= conf_thresh)
-            continue;
-
-        float center_x = bbox_data[prediction_idx];
-        float center_y = bbox_data[num_predictions + prediction_idx];
-        float width = bbox_data[num_predictions * 2 + prediction_idx];
-        float height = bbox_data[num_predictions * 3 + prediction_idx];
-
-        Detection detection;
-        detection.x1 = (center_x - width * 0.5f - pad_left) / scale;
-        detection.y1 = (center_y - height * 0.5f - pad_top) / scale;
-        detection.x2 = (center_x + width * 0.5f - pad_left) / scale;
-        detection.y2 = (center_y + height * 0.5f - pad_top) / scale;
-        detection.score = confidence;
-
-        int keypoint_offset = prediction_idx * NUM_KEYPOINTS;
-        for (int keypoint_idx = 0; keypoint_idx < NUM_KEYPOINTS; ++keypoint_idx)
+        if (detection_shape.size() == 4)
         {
-            int index = keypoint_offset + keypoint_idx;
-            float x = (keypoint_data[index] - pad_left) / scale;
-            float y = (keypoint_data[keypoint_plane_size + index] - pad_top) / scale;
-            detection.keypoints[keypoint_idx] = cv::Point2f(x, y);
-            detection.keypoint_confidences[keypoint_idx] = keypoint_confidence_data[index];
+            height = detection_shape[1];
+            width = detection_shape[2];
+            channels = detection_shape[3];
+        }
+        else if (detection_shape.size() == 3)
+        {
+            height = detection_shape[0];
+            width = detection_shape[1];
+            channels = detection_shape[2];
+        }
+        else
+        {
+            std::cerr << "Unexpected detection output shape for output " << detection_idx << std::endl;
+            continue;
         }
 
-        detections_orig.push_back(detection);
+        if (channels != detection_channels)
+        {
+            std::cerr << "Detection output " << detection_idx << " expected " << detection_channels << " channels, got " << channels << std::endl;
+            continue;
+        }
+
+        int keypoint_height = 1;
+        int keypoint_width = 1;
+        int keypoint_output_channels = 1;
+
+        if (keypoint_shape.size() == 4)
+        {
+            keypoint_height = keypoint_shape[1];
+            keypoint_width = keypoint_shape[2];
+            keypoint_output_channels = keypoint_shape[3];
+        }
+        else if (keypoint_shape.size() == 3)
+        {
+            keypoint_height = keypoint_shape[0];
+            keypoint_width = keypoint_shape[1];
+            keypoint_output_channels = keypoint_shape[2];
+        }
+        else
+        {
+            std::cerr << "Unexpected keypoint output shape for output " << keypoint_idx << std::endl;
+            continue;
+        }
+
+        if (keypoint_height != height || keypoint_width != width || keypoint_output_channels != keypoint_channels)
+        {
+            std::cerr << "Keypoint output " << keypoint_idx << " does not match [" << height << ", " << width << ", " << keypoint_channels << "]" << std::endl;
+            continue;
+        }
+
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
+            {
+                int cell_idx = y * width + x;
+                const float *detection_cell = detection_data + cell_idx * detection_channels;
+                float raw_confidence = detection_cell[reg_max * 4];
+
+                if (raw_confidence <= inv_thresh)
+                    continue;
+
+                float bbox_distances[4] = {};
+
+                for (int side = 0; side < 4; ++side)
+                {
+                    const float *dfl_data = detection_cell + side * reg_max;
+                    float max_value = dfl_data[0];
+
+                    for (int i = 1; i < reg_max; ++i)
+                        max_value = std::max(max_value, dfl_data[i]);
+
+                    float sum = 0.0f;
+                    float weighted_sum = 0.0f;
+
+                    for (int i = 0; i < reg_max; ++i)
+                    {
+                        float value = std::exp(dfl_data[i] - max_value);
+                        sum += value;
+                        weighted_sum += value * static_cast<float>(i);
+                    }
+
+                    bbox_distances[side] = weighted_sum / sum;
+                }
+
+                float center_x = (static_cast<float>(x) + 0.5f) * stride;
+                float center_y = (static_cast<float>(y) + 0.5f) * stride;
+
+                Detection detection;
+                detection.x1 = (center_x - bbox_distances[0] * stride - pad_left) / scale;
+                detection.y1 = (center_y - bbox_distances[1] * stride - pad_top) / scale;
+                detection.x2 = (center_x + bbox_distances[2] * stride - pad_left) / scale;
+                detection.y2 = (center_y + bbox_distances[3] * stride - pad_top) / scale;
+                detection.x1 = std::max(0.0f, std::min(detection.x1, static_cast<float>(std::get<0>(input_tuple).cols - 1)));
+                detection.y1 = std::max(0.0f, std::min(detection.y1, static_cast<float>(std::get<0>(input_tuple).rows - 1)));
+                detection.x2 = std::max(0.0f, std::min(detection.x2, static_cast<float>(std::get<0>(input_tuple).cols - 1)));
+                detection.y2 = std::max(0.0f, std::min(detection.y2, static_cast<float>(std::get<0>(input_tuple).rows - 1)));
+                detection.score = sigmoid(raw_confidence);
+
+                const float *keypoint_cell = keypoint_data + cell_idx * keypoint_channels;
+
+                for (int keypoint_idx = 0; keypoint_idx < NUM_KEYPOINTS; ++keypoint_idx)
+                {
+                    float raw_x = keypoint_cell[keypoint_idx * 3];
+                    float raw_y = keypoint_cell[keypoint_idx * 3 + 1];
+                    float raw_keypoint_confidence = keypoint_cell[keypoint_idx * 3 + 2];
+
+                    float keypoint_x = ((raw_x * 2.0f + static_cast<float>(x)) * stride - pad_left) / scale;
+                    float keypoint_y = ((raw_y * 2.0f + static_cast<float>(y)) * stride - pad_top) / scale;
+
+                    detection.keypoints[keypoint_idx] = cv::Point2f(keypoint_x, keypoint_y);
+                    detection.keypoint_confidences[keypoint_idx] = sigmoid(raw_keypoint_confidence);
+                }
+
+                detections_orig.push_back(detection);
+            }
+        }
     }
 
     return nms(detections_orig, iou_threshold);

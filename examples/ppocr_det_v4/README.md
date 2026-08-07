@@ -184,7 +184,7 @@ GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 
 The executable will be generated at `build/linux/64/ppocrv4_det_demo` (or `build/linux/32/ppocrv4_det_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed

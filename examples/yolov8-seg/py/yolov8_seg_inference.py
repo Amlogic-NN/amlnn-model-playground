@@ -42,6 +42,9 @@ CLASS_NAMES = [
     'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
 ]
 
+REG_MAX = 16
+NUM_MASKS = 32
+
 def letterbox(img, new_shape, color=(114, 114, 114)):
     shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -87,67 +90,124 @@ def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     input_tensor = np.expand_dims(input_tensor, axis=0)
     return input_tensor, original_img, resize_scale, pad
 
-def postprocess(outputs, scale, pad, conf_threshold, iou_threshold):
-    if len(outputs) != 4:
-        raise ValueError(f"Expected 4 YOLOv8-Seg outputs, got {len(outputs)}")
+def postprocess(outputs, original_shape, scale, pad, conf_threshold, iou_threshold, reg_max=REG_MAX, num_masks=NUM_MASKS):
+    if len(outputs) != 10:
+        raise ValueError(f"Expected 10 YOLOv8-Seg outputs, got {len(outputs)}")
 
-    # Fixed decoded layouts: [4,N], [80,N], [32,N], and [160,160,32].
-    bboxes = np.squeeze(outputs[0]).T
-    class_scores = np.squeeze(outputs[1]).T
-    mask_coefficients = np.squeeze(outputs[2]).T
-    prototype_mask = np.squeeze(outputs[3])
+    original_h, original_w = original_shape
+    num_classes = len(CLASS_NAMES)
+    safe_threshold = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
+    inverse_threshold = np.log(safe_threshold / (1.0 - safe_threshold))
+    projection = np.arange(reg_max, dtype=np.float32).reshape(1, reg_max, 1)
+    prototype_mask = np.squeeze(outputs[9])
+    all_boxes = []
+    all_scores = []
+    all_class_ids = []
+    all_mask_coefficients = []
 
-    num_predictions = bboxes.shape[0]
-    if bboxes.ndim != 2 or bboxes.shape[1] != 4:
-        raise ValueError(f"Unexpected bbox output shape: {outputs[0].shape}")
-    if class_scores.shape != (num_predictions, len(CLASS_NAMES)):
-        raise ValueError(f"Unexpected class output shape: {outputs[1].shape}")
-    if mask_coefficients.shape != (num_predictions, 32):
-        raise ValueError(f"Unexpected mask coefficient shape: {outputs[2].shape}")
-    if prototype_mask.shape != (160, 160, 32):
-        raise ValueError(f"Unexpected prototype output shape: {outputs[3].shape}")
+    if prototype_mask.ndim != 3 or prototype_mask.shape[2] != num_masks:
+        raise ValueError(f"Unexpected prototype output shape: {outputs[9].shape}")
 
-    scores = np.max(class_scores, axis=1)
-    class_ids = np.argmax(class_scores, axis=1)
-    valid_indices = np.where(scores > conf_threshold)[0]
-    if len(valid_indices) == 0:
+    # Output order: [DFL_8, CLS_8, MASK_8, DFL_16, CLS_16, MASK_16, DFL_32, CLS_32, MASK_32, PROTO].
+    strides = [8, 16, 32]
+    for output_idx, stride in enumerate(strides):
+        detection_output = np.squeeze(outputs[output_idx * 3])
+        class_output = np.squeeze(outputs[output_idx * 3 + 1])
+        mask_output = np.squeeze(outputs[output_idx * 3 + 2])
+
+        if detection_output.ndim != 3:
+            raise ValueError(f"Unexpected DFL shape for stride {stride}: {outputs[output_idx * 3].shape}")
+
+        grid_h, grid_w, detection_channels = detection_output.shape
+        num_cells = grid_h * grid_w
+
+        if detection_channels != 4 * reg_max:
+            raise ValueError(f"Unexpected DFL channels for stride {stride}: {detection_output.shape}")
+        if class_output.shape != (grid_h, grid_w, num_classes):
+            raise ValueError(f"Unexpected class shape for stride {stride}: {outputs[output_idx * 3 + 1].shape}")
+        if mask_output.shape != (grid_h, grid_w, num_masks):
+            raise ValueError(f"Unexpected mask coefficient shape for stride {stride}: {outputs[output_idx * 3 + 2].shape}")
+
+        detection_output = detection_output.reshape(num_cells, 4 * reg_max).T
+        class_output = class_output.reshape(num_cells, num_classes).T
+        mask_output = mask_output.reshape(num_cells, num_masks).T
+
+        max_class_logits = np.max(class_output, axis=0)
+        class_ids = np.argmax(class_output, axis=0)
+        valid_indices = np.where(max_class_logits > inverse_threshold)[0]
+        if len(valid_indices) == 0:
+            continue
+
+        scores = sigmoid(max_class_logits[valid_indices])
+        valid_class_ids = class_ids[valid_indices]
+        valid_mask_coefficients = mask_output[:, valid_indices].T
+
+        # Decode four reg_max distributions into left, top, right, and bottom distances.
+        valid_dfl = detection_output[:, valid_indices].reshape(4, reg_max, -1)
+        valid_dfl -= np.max(valid_dfl, axis=1, keepdims=True)
+        probabilities = np.exp(valid_dfl)
+        probabilities /= np.sum(probabilities, axis=1, keepdims=True)
+        distances = np.sum(probabilities * projection, axis=1)
+
+        grid_x = (valid_indices % grid_w).astype(np.float32)
+        grid_y = (valid_indices // grid_w).astype(np.float32)
+        center_x = (grid_x + 0.5) * stride
+        center_y = (grid_y + 0.5) * stride
+        x1 = center_x - distances[0] * stride
+        y1 = center_y - distances[1] * stride
+        x2 = center_x + distances[2] * stride
+        y2 = center_y + distances[3] * stride
+
+        all_boxes.append(np.stack([x1, y1, x2, y2], axis=1))
+        all_scores.append(scores)
+        all_class_ids.append(valid_class_ids)
+        all_mask_coefficients.append(valid_mask_coefficients)
+
+    if not all_boxes:
         return [], prototype_mask
 
-    bboxes = bboxes[valid_indices]
-    scores = scores[valid_indices]
-    class_ids = class_ids[valid_indices]
-    mask_coefficients = mask_coefficients[valid_indices]
+    boxes = np.concatenate(all_boxes, axis=0)
+    scores = np.concatenate(all_scores, axis=0)
+    class_ids = np.concatenate(all_class_ids, axis=0)
+    mask_coefficients = np.concatenate(all_mask_coefficients, axis=0)
 
-    # Convert decoded XYWH boxes back to original-image coordinates.
+    # Undo letterbox padding and resize scaling.
     pad_x, pad_y = pad
-    center_x = bboxes[:, 0]
-    center_y = bboxes[:, 1]
-    width = bboxes[:, 2]
-    height = bboxes[:, 3]
-    x1 = (center_x - width / 2.0 - pad_x) / scale
-    y1 = (center_y - height / 2.0 - pad_y) / scale
-    x2 = (center_x + width / 2.0 - pad_x) / scale
-    y2 = (center_y + height / 2.0 - pad_y) / scale
-    boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
-    boxes_xywh = np.stack([x1, y1, width / scale, height / scale], axis=1)
+    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale
+    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale
+    boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, original_w - 1)
+    boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, original_h - 1)
+
+    widths = boxes[:, 2] - boxes[:, 0]
+    heights = boxes[:, 3] - boxes[:, 1]
+    valid_size_mask = (widths > 0.0) & (heights > 0.0)
+    boxes = boxes[valid_size_mask]
+    scores = scores[valid_size_mask]
+    class_ids = class_ids[valid_size_mask]
+    mask_coefficients = mask_coefficients[valid_size_mask]
+    widths = widths[valid_size_mask]
+    heights = heights[valid_size_mask]
+
+    if len(boxes) == 0:
+        return [], prototype_mask
+
+    boxes_xywh = np.stack([boxes[:, 0], boxes[:, 1], widths, heights], axis=1)
 
     # Run NMS separately for each class.
     selected_indices = []
     for class_id in np.unique(class_ids):
         class_indices = np.where(class_ids == class_id)[0]
-        nms_indices = cv2.dnn.NMSBoxes(
-            boxes_xywh[class_indices].tolist(), scores[class_indices].tolist(),
-            conf_threshold, iou_threshold
-        )
+        nms_indices = cv2.dnn.NMSBoxes(boxes_xywh[class_indices].tolist(), scores[class_indices].tolist(), conf_threshold, iou_threshold)
         if len(nms_indices) > 0:
             selected_indices.extend(class_indices[nms_indices.flatten()].tolist())
 
     selected_indices.sort(key=lambda idx: float(scores[idx]), reverse=True)
+
     detections = []
     for detection_idx in selected_indices:
         class_id = int(class_ids[detection_idx])
         detections.append({
-            'bbox': boxes_xyxy[detection_idx].tolist(),
+            'bbox': boxes[detection_idx].tolist(),
             'confidence': float(scores[detection_idx]),
             'class_id': class_id,
             'class_name': CLASS_NAMES[class_id],
@@ -301,7 +361,7 @@ def main():
             )
             outputs = amlnn.inference(inputs=[input_tensor])
             detections, prototype_mask = postprocess(
-                outputs, resize_scale, pad, args.conf, args.nms
+                outputs, original_img.shape[:2], resize_scale, pad, args.conf, args.nms
             )
 
             if detections:

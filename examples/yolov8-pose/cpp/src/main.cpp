@@ -21,12 +21,15 @@
 #include <tuple>
 #include <opencv2/opencv.hpp>
 #include <filesystem>
+#include <iomanip>
 #include "postprocess.h"
 #include "nnsdk2.h"
 #include "model_loader.h"
 
 const float SCORE_THRESHOLD = 0.25f;
 const float NMS_THRESHOLD = 0.45f;
+const int REG_MAX = 16;
+const int EXPECTED_OUTPUT_NUM = 6;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
@@ -51,9 +54,9 @@ int main(int argc, char **argv)
 
     amlnn_input_output_num io_num;
     amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-    if (io_num.n_output != 4)
+    if (io_num.n_output != EXPECTED_OUTPUT_NUM)
     {
-        std::cerr << "Expected 4 YOLOv8-Pose outputs, but model has "
+        std::cerr << "Expected " << EXPECTED_OUTPUT_NUM << " YOLOv8-Pose outputs, but model has "
                   << io_num.n_output << " outputs." << std::endl;
         uninit_network(context);
         return -1;
@@ -137,10 +140,30 @@ int main(int argc, char **argv)
             out_ptrs.push_back(static_cast<float *>(out_data[i].buf));
 
         std::vector<Detection> detections = postprocess(
-            out_ptrs, out_shapes, std::make_tuple(preprocessed, scale, pad),
-            SCORE_THRESHOLD, NMS_THRESHOLD);
+            out_ptrs, out_shapes, input_height, input_width, std::make_tuple(preprocessed, scale, pad),
+            SCORE_THRESHOLD, NMS_THRESHOLD, REG_MAX);
 
-        std::cout << "Detections: " << detections.size() << std::endl;
+        if (detections.empty())
+        {
+            std::cout << "No people detected." << std::endl;
+        }
+        else
+        {
+            std::cout << "Detected " << detections.size() << " " << (detections.size() == 1 ? "person" : "people") << ":" << std::endl;
+
+            for (size_t i = 0; i < detections.size(); ++i)
+            {
+                int visible_keypoints = 0;
+                for (int keypoint_idx = 0; keypoint_idx < NUM_KEYPOINTS; ++keypoint_idx)
+                {
+                    if (detections[i].keypoint_confidences[keypoint_idx] > KEYPOINT_THRESHOLD)
+                        ++visible_keypoints;
+                }
+
+                std::cout << "  " << i + 1 << ". confidence=" << std::fixed << std::setprecision(2) << detections[i].score
+                          << ", visible keypoints=" << visible_keypoints << "/" << NUM_KEYPOINTS << std::endl;
+            }
+        }
 
         cv::Mat result_img = draw_detections(img, detections);
         std::string out_path = "yolov8_pose_result/" + it.path().filename().string();

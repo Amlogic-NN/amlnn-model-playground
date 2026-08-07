@@ -14,15 +14,17 @@
 # limitations under the License.
 #
 
-import numpy as np
-import os
-import glob
 import argparse
-import cv2
+import glob
 import math
+import os
 from pathlib import Path
+import cv2
+import numpy as np
 from amlnn.api import AMLNN
 
+HEATMAP_SEARCH_RADIUS = 9
+HEATMAP_MIN_CONFIDENCE = 0.5
 NUM_LANDMARKS = 39
 NUM_POSE_LANDMARKS = 33
 INPUT_SIZE = 256
@@ -98,15 +100,15 @@ def preprocess(image, roi, new_shape, s, zp, tensor_type):
     input_h, input_w = new_shape
 
     source = np.asarray([
-        roi_to_image_point(0, 0, roi),
-        roi_to_image_point(INPUT_SIZE - 1, 0, roi),
-        roi_to_image_point(0, INPUT_SIZE - 1, roi)
+        roi_to_image_point(0.0, 0.0, roi),
+        roi_to_image_point(float(INPUT_SIZE), 0.0, roi),
+        roi_to_image_point(0.0, float(INPUT_SIZE), roi)
     ], dtype=np.float32)
 
     destination = np.asarray([
-        [0, 0],
-        [input_w - 1, 0],
-        [0, input_h - 1]
+        [0.0, 0.0],
+        [float(input_w), 0.0],
+        [0.0, float(input_h)]
     ], dtype=np.float32)
 
     transform = cv2.getAffineTransform(source, destination)
@@ -127,7 +129,7 @@ def preprocess(image, roi, new_shape, s, zp, tensor_type):
         input_tensor = rgb_float / 255.0
     elif tensor_type in (2, 3, 4):
         inv_scale = np.float32(1.0 / (255.0 * s))
-        raw_val = np.round((rgb_float * inv_scale) + zp)
+        raw_val = np.round(rgb_float * inv_scale + zp)
 
         if tensor_type == 2:
             input_tensor = np.clip(raw_val, -128, 127).astype(np.int8)
@@ -147,21 +149,91 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -100.0, 100.0)))
 
 
-def postprocess(outputs, roi, image_shape, presence_threshold=0.5):
+def refine_landmarks_from_heatmap(raw_landmarks, heatmap, heatmap_h, heatmap_w, heatmap_channels,
+                                  search_radius=HEATMAP_SEARCH_RADIUS,
+                                  min_confidence=HEATMAP_MIN_CONFIDENCE):
+    refined = raw_landmarks.copy()
+    heatmap = np.asarray(heatmap, dtype=np.float32)
+
+    if heatmap.shape != (heatmap_h, heatmap_w, heatmap_channels):
+        raise ValueError(
+            f"Heatmap data shape {heatmap.shape} does not match "
+            f"the supplied shape {(heatmap_h, heatmap_w, heatmap_channels)}"
+        )
+
+    if heatmap_channels < raw_landmarks.shape[0]:
+        raise ValueError(
+            f"Heatmap has {heatmap_channels} channels, but there are "
+            f"{raw_landmarks.shape[0]} landmarks"
+        )
+
+    for landmark_index in range(raw_landmarks.shape[0]):
+        raw_x = raw_landmarks[landmark_index, 0]
+        raw_y = raw_landmarks[landmark_index, 1]
+
+        center_col = int(raw_x / INPUT_SIZE * heatmap_w)
+        center_row = int(raw_y / INPUT_SIZE * heatmap_h)
+
+        if center_col < 0 or center_col >= heatmap_w or center_row < 0 or center_row >= heatmap_h:
+            continue
+
+        begin_col = max(0, center_col - search_radius)
+        end_col = min(heatmap_w, center_col + search_radius + 1)
+        begin_row = max(0, center_row - search_radius)
+        end_row = min(heatmap_h, center_row + search_radius + 1)
+
+        logits = heatmap[begin_row:end_row, begin_col:end_col, landmark_index]
+        confidence = sigmoid(logits)
+
+        confidence_sum = float(np.sum(confidence))
+        max_confidence = float(np.max(confidence))
+
+        if max_confidence < min_confidence or confidence_sum <= 0.0:
+            continue
+
+        columns = np.arange(begin_col, end_col, dtype=np.float32)
+        rows = np.arange(begin_row, end_row, dtype=np.float32)
+
+        normalized_x = float(np.sum(confidence * columns[None, :]) / (heatmap_w * confidence_sum))
+        normalized_y = float(np.sum(confidence * rows[:, None]) / (heatmap_h * confidence_sum))
+
+        refined[landmark_index, 0] = normalized_x * INPUT_SIZE
+        refined[landmark_index, 1] = normalized_y * INPUT_SIZE
+
+    return refined
+
+
+def postprocess(outputs, roi, image_shape, presence_threshold):
     raw_landmarks = np.asarray(outputs[0], dtype=np.float32).reshape(NUM_LANDMARKS, 5)
     pose_score = float(np.asarray(outputs[1], dtype=np.float32).reshape(-1)[0])
     segmentation = np.asarray(outputs[2], dtype=np.float32)
     heatmap = np.asarray(outputs[3], dtype=np.float32)
     raw_world = np.asarray(outputs[4], dtype=np.float32).reshape(NUM_LANDMARKS, 3)
 
+    if pose_score < presence_threshold:
+        return None
+
     if segmentation.size != INPUT_SIZE * INPUT_SIZE:
         raise ValueError(f"Unexpected segmentation output size: {segmentation.size}")
 
-    if heatmap.size != 64 * 64 * NUM_LANDMARKS:
-        raise ValueError(f"Unexpected heatmap output size: {heatmap.size}")
+    if heatmap.ndim == 4:
+        if heatmap.shape[0] != 1:
+            raise ValueError(f"Expected heatmap batch size 1, got {heatmap.shape}")
 
-    if pose_score < presence_threshold:
-        return None
+        heatmap = heatmap[0]
+
+    if heatmap.ndim != 3:
+        raise ValueError(f"Expected NHWC/HWC heatmap, got {heatmap.shape}")
+
+    heatmap_h, heatmap_w, heatmap_channels = heatmap.shape
+
+    refined_landmarks = refine_landmarks_from_heatmap(
+        raw_landmarks,
+        heatmap,
+        heatmap_h,
+        heatmap_w,
+        heatmap_channels
+    )
 
     height, width = image_shape[:2]
     cosine = math.cos(roi["rotation"])
@@ -169,7 +241,7 @@ def postprocess(outputs, roi, image_shape, presence_threshold=0.5):
     landmarks = []
 
     for i in range(NUM_POSE_LANDMARKS):
-        raw = raw_landmarks[i]
+        raw = refined_landmarks[i]
         world = raw_world[i]
 
         x_px, y_px = roi_to_image_point(raw[0], raw[1], roi)
@@ -204,7 +276,6 @@ def draw_detections(image, results, save_path=None, visibility_threshold=0.5, in
 
             point_a = (int(landmarks[a]["x"] * width), int(landmarks[a]["y"] * height))
             point_b = (int(landmarks[b]["x"] * width), int(landmarks[b]["y"] * height))
-
             cv2.line(result_img, point_a, point_b, (0, 255, 0), 2)
 
         for landmark in landmarks:
@@ -271,8 +342,11 @@ def main():
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext.upper())))
 
+    image_files = sorted(set(image_files))
+
     if not image_files:
         print(f"No image files found in {args.image_dir}")
+        amlnn.uninit()
         return 0
 
     print(f"Found {len(image_files)} image file(s) to process:")
@@ -303,13 +377,15 @@ def main():
 
             if not detections:
                 print("    No detections found, skipping...")
+                print()
                 continue
 
             results = []
 
-            for detection in detections:
+            for detection_index, detection in enumerate(detections):
                 roi = detection_to_roi(detection, image.shape)
                 input_tensor = preprocess(image, roi, input_shape, s, zp, tensor_type)
+
                 outputs = amlnn.inference(inputs=[input_tensor])
                 result = postprocess(outputs, roi, image.shape, args.conf)
 

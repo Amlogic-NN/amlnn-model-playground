@@ -54,7 +54,7 @@ Run the ADLA export script from `examples/yamnet/py`:
 cd examples/yamnet/py
 python export_adla.py \
   --model ../model/yamnet.onnx \
-  --target-platform 005 \
+  --target-platform 007 \
   --adla ../model
 ```
 
@@ -73,11 +73,11 @@ examples/yamnet/model/yamnet_w8a16.adla
 
 **Prerequisites:**
 - Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`, `librosa`
+- Required packages: `amlnn`, `librosa`
 
 **Install dependencies:**
 ```bash
-pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl librosa
+pip install numpy amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl librosa
 ```
 
 **Run on device:**
@@ -90,11 +90,11 @@ python yamnet_inference.py \
 Argument Descriptions:
 | Argument         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
+| `--model-path` | Path to `.adla` model |
 | `--labels` | Path to `labels.csv` |
-|` --audio-dir`   | Directory containing test images |
+|` --audio-dir`   | Directory containing `.wav` test audio files |
 
-The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
+
 
 
 ## 4. Run C++ Demo
@@ -190,7 +190,7 @@ GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 
 The executable will be generated at `build/linux/64/yamnet_demo` (or `build/linux/32/yamnet_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed

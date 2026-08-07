@@ -1,79 +1,126 @@
+# Platform Compile Guide
 
 
-# 1、Android Platform
+## 1 Install CMake
 
-​	 **Android compilation** depends on the NDK toolchain. Currently, version r25c is recommended. Download link: https://github.com/android/ndk/wiki/Unsupported-Downloads
+CMake is a cross-platform build system generator used to generate Makefiles or project files. The minimum required version is CMake 3.10+, CMake 3.20+ is recommended.
 
-##   NDK toolchain configuration
+```bash
+sudo apt-get update
+sudo apt-get install cmake
 
-- Verify whether the ndk-build compilation environment exists:
+# Verify version
+cmake --version
 
-​				Execute: ndk-build -v. If there is a version information prompt, it is successful. If not, refer to the following steps to configure the ndk-build compilation environment
+# Output: cmake version 3.x.x
+# Minimum required version is CMake 3.10+, CMake 3.20+ is recommended
 
-- Download android-ndk-r25c
+# To install a newer version manually
+wget https://github.com/Kitware/CMake/releases/download/v3.27.0/cmake-3.27.0-linux-x86_64.sh
 
-  ​	 https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+sudo bash cmake-3.27.0-linux-x86_64.sh --prefix=/usr/local --skip-license
 
-- Unzip and get the path /xxxx/android-ndk-r25c
+cmake --version
+```
 
-- Set environment variables
+## 2 Install Cross-Compilation Toolchain
 
-  - Edit bash.bashrc file
+According to the OS type determined in section "2.2 System Environment and Architecture Confirmation", install the matching cross-compilation toolchain.
 
-    ​      sudo vi ~/.bashrc
+The cross-compilation toolchain is the core bridge connecting the development host (Host) and the target board (Target). It generates executables on a high-performance PC that are compatible with the board's CPU instruction set and ABI specifications. Please choose the corresponding installation scheme below based on the system environment confirmed in the previous section.
 
-    ​      Add at the end of the file: export PATH=/xxxx/android-ndk-r25c:$PATH
+### 2.1 Android System: Install and Configure NDK
 
-  - Update environment variables
+When the target board runs the Android system, you need to install and configure the NDK toolchain.
 
-    ​      source ~/.bashrc
+**Step 1: Android NDK download link:** https://github.com/android/ndk/wiki/Unsupported-Downloads
 
-  - Check whether the environment has been successfully added
+```bash
+cd ~/workspace
 
-    ​     ndk-build --version shows version information
+# ========== Download and configure NDK ==========
+wget https://dl.google.com/android/repository/android-ndk-r25c-linux.zip
+unzip android-ndk-r25c-linux.zip
 
-    
+echo 'export ANDROID_NDK_PATH=$HOME/workspace/android-ndk-r25c' >> ~/.bashrc
+echo 'export PATH=$ANDROID_NDK_PATH:$PATH' >> ~/.bashrc
+source ~/.bashrc
+```
 
-# 2、Linux Platform
+**Step 2: Verify installation:**
 
-   **Linux compilation** toolchain dependency: **gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf**, download link: https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-a/downloads/
+```bash
+ndk-build --version
+# If the version information is printed normally, NDK is installed successfully
+```
 
-## Linux toolchain configuration：
+### 2.2 Buildroot System: Install GCC Cross-Compilation Toolchain
 
-1. Configure the cmake compilation environment:
+When the target board runs the Buildroot system, you need to install a GCC cross-compilation toolchain that matches the board's Release.
 
-   1. Verify whether there is a cmake environment:
+> **Note:**
+> - Buildroot is sensitive to the toolchain version, glibc, libstdc++, and ABI compatibility. It is recommended to prefer the cross-compilation toolchain bundled with or explicitly specified by the corresponding board Release.
+> - The toolchains below are reference versions. If the project Release Notes specify otherwise, follow the Release Notes.
+> - Before installation, confirm whether the board is a 32-bit or 64-bit system as described in section "2.2 System Environment and Architecture Confirmation".
 
-      cmake --version shows the cmake version is successful. If cmake does not exist, perform the following steps to configure the cmake environment
+**For 64-bit System:**
 
-   2. Install cmake
+```bash
+cd ~/workspace
 
-      pip3 install cmake==3.16.3
+wget https://developer.arm.com/-/media/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu.tar.xz
 
-   3. Verify that the installation is successful
+tar -xf gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu.tar.xz
 
-      cmake --version	
+# Configure toolchain environment variables (only valid for the current terminal)
+export BUILDROOT_TOOLCHAIN=$HOME/workspace/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu
+export PATH=$BUILDROOT_TOOLCHAIN/bin:$PATH
 
-      Displaying the cmake version is successful
+# Verify installation
+aarch64-none-linux-gnu-gcc --version
+aarch64-none-linux-gnu-g++ --version
+```
 
-      
+**For 32-bit System:**
 
-2. Configure the compilation toolchain
-   1. Download the toolchain
-         32-bit：https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-a/downloads/  link，
-                      gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf.tar.xz
+```bash
+cd ~/workspace
 
-​    			64-bit: There is currently no 64-bit version, and it will not be added for the time being. If some customers use the corresponding version and did not add the toolchain path in time, please give feedback.
+wget https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu-a/10.3-2021.07/binrel/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf.tar.xz
 
-   	2.arm-none-linux-gnueabihf install
+tar -xf gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf.tar.xz
 
-​		    a.Unzip it and place it in the folder you need
-​       			tar -xvJf ***.tar.xz
-​    		b.Edit the bash.bashrc file
-​      			 sudo vi ~/.bashrc
-​    		c.Add environment variables
-​       			export PATH=path_to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
-​    		d.update environment variables
-​			       source ~/.bashrc
-​    		e.Check if the environment is successfully joined
-​       			Execue：arm-none-linux-gnueabihf-gcc -v，View gcc 32bit version
+# Configure toolchain environment variables (only valid for the current terminal)
+export BUILDROOT_TOOLCHAIN=$HOME/workspace/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf
+export PATH=$BUILDROOT_TOOLCHAIN/bin:$PATH
+
+# Verify installation
+arm-none-linux-gnueabihf-gcc --version
+arm-none-linux-gnueabihf-g++ --version
+```
+
+To make the environment variables take effect permanently, add the corresponding export commands to `~/.bashrc`, then run:
+
+```bash
+source ~/.bashrc
+```
+
+### 2.3 Armbian/Yocto System: Install Cross-Compilation Toolchain
+
+When the target board runs the Armbian/Yocto system, you need to install and configure the corresponding cross-compilation toolchain.
+
+**For 64-bit System:**
+
+```bash
+wget https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/toolchain/yocto_toolchain/64/poky-glibc-x86_64-meta-toolchain-armv8a-mesont7-an400-5.15-a64-toolchain-4.0.20.sh
+
+./poky-glibc-x86_64-meta-toolchain-armv8a-mesont7-an400-5.15-a64-toolchain-4.0.20.sh
+```
+
+**For 32-bit System:**
+
+```bash
+wget https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/toolchain/yocto_toolchain/32/poky-glibc-x86_64-amlogic-bsp-armv7at2hf-neon-mesons7-bh201-5.15-a32-toolchain-4.0.20.sh
+
+./poky-glibc-x86_64-amlogic-bsp-armv7at2hf-neon-mesons7-bh201-5.15-a32-toolchain-4.0.20.sh
+```

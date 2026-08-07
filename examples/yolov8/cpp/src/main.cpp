@@ -54,6 +54,13 @@ int main(int argc, char **argv)
     amlnn_input_output_num io_num;
     amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
 
+    if (io_num.n_output != 6)
+    {
+        std::cerr << "Expected 6 YOLOv8 outputs, but model has " << io_num.n_output << " outputs." << std::endl;
+        uninit_network(context);
+        return -1;
+    }
+
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
 
     std::vector<int> input_shape = get_tensor_shape(input_attr);

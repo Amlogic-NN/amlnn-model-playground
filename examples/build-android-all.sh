@@ -18,7 +18,9 @@
 
 usage() {
     echo "Usage: $0 [-a <target_abi>]"
-    echo "  -a <target_abi> : Target ABI (default: arm64-v8a)"
+    echo "  -a <target_abi> : Android target ABI:"
+    echo "                    arm64-v8a     = 64-bit ARM (default)"
+    echo "                    armeabi-v7a   = 32-bit ARM"
     echo "  -h              : Show this help message"
     exit 1
 }
@@ -53,8 +55,8 @@ if [ -n "$AMLNN_HOME" ]; then
     RUNTIME_PATH="$AMLNN_HOME/nn_runtime"
     echo "Priority 1: Using AMLNN_HOME from environment: $AMLNN_HOME"
 # Priority 3: Fallback to sibling amlnn-toolkit (compatibility)
-elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit/nn_runtime" ]; then
-    export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit" && pwd)"
+elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit/amlnn_runtime/nn_runtime" ]; then
+    export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit/amlnn_runtime" && pwd)"
     RUNTIME_PATH="$AMLNN_HOME/nn_runtime"
     echo "Priority 3: Using sibling amlnn-toolkit as fallback: $AMLNN_HOME"
 elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit-a/nn_runtime" ]; then
@@ -68,11 +70,11 @@ else
     echo "Please do one of the following:"
     echo ""
     echo "  Option A (recommended) – set AMLNN_HOME:"
-    echo "    export AMLNN_HOME=/path/to/amlnn-toolkit"
+    echo "    export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime"
     echo "    ./build-android-all.sh"
     echo ""
     echo "  Option B – clone amlnn-toolkit as a sibling directory:"
-    echo "    git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../amlnn-toolkit"
+    echo "    git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../amlnn-toolkit/amlnn_runtime"
     echo "    ./build-android-all.sh"
     echo ""
     exit 1
@@ -112,8 +114,8 @@ for EXAMPLE in "${EXAMPLES[@]}"; do
     echo "--------------------------------------------"
 
     # Clean previous build to avoid stale CMake cache
-    echo "Cleaning: ${EXAMPLE_DIR}/build/android"
-    rm -rf "${EXAMPLE_DIR}/build/android"
+    echo "Cleaning: ${EXAMPLE_DIR}/build/android/${TARGET_ABI}"
+    rm -rf "${EXAMPLE_DIR}/build/android/${TARGET_ABI}"
 
     if bash "${BUILD_SCRIPT}" -a "${TARGET_ABI}"; then
         SUCCEEDED+=("${EXAMPLE}")

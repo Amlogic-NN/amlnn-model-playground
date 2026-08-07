@@ -40,7 +40,7 @@ The model conversion is done using the export_adla.py script.
 ```bash
 cd py
 Usage:   python export_adla.py --onnx ../model/model.onnx \
-                               --target-platform 007 \
+                               --target-platform 005 \
                                --adla ../model
 ```
 
@@ -172,7 +172,7 @@ GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 
 The executable will be generated at `build/linux/64/lprnet_demo` (or `build/linux/32/lprnet_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed
@@ -227,14 +227,6 @@ By setting the loglevel to INFO, the program provides real-time performance metr
 - Model Overview: Basic input/output configurations.
 - NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
 
-**Detection Output**
-
-The program will convert the model, print the detection count, and inference time. The result image with bounding boxes will be saved to the specified output path (`model_result/test_image_result.jpg` by default).
-
-You can pull the result image back to view it:
-```bash
-adb pull model_result/test_image_result.png
-```
 
 ```bash
 ============================================================

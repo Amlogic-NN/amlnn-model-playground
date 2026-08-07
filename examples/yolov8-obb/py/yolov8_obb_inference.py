@@ -41,6 +41,11 @@ class_names = {
     14: 'swimming pool'
 }
 
+REG_MAX = 16
+
+def sigmoid(values):
+    return 1.0 / (1.0 + np.exp(-np.clip(values, -80.0, 80.0)))
+
 def letterbox(img, new_shape, color=(114, 114, 114)):
     shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -86,80 +91,145 @@ def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     input_tensor = np.expand_dims(input_tensor, axis=0)
     return input_tensor, original_img, resize_scale, pad
 
-def postprocess(outputs, scale, pad, conf_threshold, iou_threshold):
-    if len(outputs) != 3:
-        raise ValueError(f"Expected 3 YOLOv8-OBB outputs, got {len(outputs)}")
+def postprocess(outputs, scale, pad, conf_threshold, iou_threshold, reg_max=REG_MAX):
+    if len(outputs) != 9:
+        raise ValueError(f"Expected 9 YOLOv8-OBB outputs, got {len(outputs)}")
 
-    # Fixed output layout: [1, 1, 4, N], [1, 1, 15, N], and [1, 1, 1, N].
-    bboxes = np.squeeze(outputs[0]).T
-    class_scores = np.squeeze(outputs[1]).T
-    angles = np.squeeze(outputs[2])
+    num_classes = len(class_names)
+    safe_threshold = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
+    inverse_threshold = np.log(safe_threshold / (1.0 - safe_threshold))
+    projection = np.arange(reg_max, dtype=np.float32).reshape(1, reg_max, 1)
+    all_boxes = []
+    all_scores = []
+    all_class_ids = []
 
-    num_predictions = bboxes.shape[0]
-    if bboxes.ndim != 2 or bboxes.shape[1] != 4:
-        raise ValueError(f"Unexpected bbox output shape: {outputs[0].shape}")
-    if class_scores.shape != (num_predictions, len(class_names)):
-        raise ValueError(f"Unexpected class output shape: {outputs[1].shape}")
-    if angles.ndim != 1 or angles.shape[0] != num_predictions:
-        raise ValueError(f"Unexpected angle output shape: {outputs[2].shape}")
+    # Output order: [DFL_8, ANGLE_8, CLS_8, DFL_16, ANGLE_16, CLS_16, DFL_32, ANGLE_32, CLS_32].
+    strides = [8, 16, 32]
+    for output_idx, stride in enumerate(strides):
+        dfl_output = np.squeeze(outputs[output_idx * 3])
+        angle_output = np.squeeze(outputs[output_idx * 3 + 1])
+        class_output = np.squeeze(outputs[output_idx * 3 + 2])
 
-    scores = np.max(class_scores, axis=1)
-    class_ids = np.argmax(class_scores, axis=1)
-    valid_indices = np.where(scores > conf_threshold)[0]
-    if len(valid_indices) == 0:
+        if dfl_output.ndim != 3:
+            raise ValueError(f"Unexpected DFL shape for stride {stride}: {outputs[output_idx * 3].shape}")
+
+        grid_h, grid_w, dfl_channels = dfl_output.shape
+        num_cells = grid_h * grid_w
+
+        if dfl_channels != 4 * reg_max:
+            raise ValueError(f"Unexpected DFL shape for stride {stride}: {outputs[output_idx * 3].shape}")
+        if angle_output.shape != (grid_h, grid_w):
+            raise ValueError(f"Unexpected angle shape for stride {stride}: {outputs[output_idx * 3 + 1].shape}")
+        if class_output.shape != (grid_h, grid_w, num_classes):
+            raise ValueError(f"Unexpected class shape for stride {stride}: {outputs[output_idx * 3 + 2].shape}")
+
+        dfl_output = dfl_output.reshape(num_cells, 4 * reg_max).T
+        angle_output = angle_output.reshape(num_cells)
+        class_output = class_output.reshape(num_cells, num_classes).T
+
+        max_class_logits = np.max(class_output, axis=0)
+        class_ids = np.argmax(class_output, axis=0)
+        valid_indices = np.where(max_class_logits > inverse_threshold)[0]
+        if len(valid_indices) == 0:
+            continue
+
+        scores = sigmoid(max_class_logits[valid_indices])
+        valid_class_ids = class_ids[valid_indices]
+
+        # Decode DFL into left, top, right, and bottom distances.
+        valid_dfl = dfl_output[:, valid_indices].reshape(4, reg_max, -1)
+        valid_dfl -= np.max(valid_dfl, axis=1, keepdims=True)
+        probabilities = np.exp(valid_dfl)
+        probabilities /= np.sum(probabilities, axis=1, keepdims=True)
+        distances = np.sum(probabilities * projection, axis=1)
+
+        left, top, right, bottom = distances
+        grid_x = (valid_indices % grid_w).astype(np.float32)
+        grid_y = (valid_indices // grid_w).astype(np.float32)
+
+        # YOLOv8-OBB angle range: [-pi/4, 3pi/4].
+        angles = (sigmoid(angle_output[valid_indices]) - 0.25) * np.pi
+        cos_angle = np.cos(angles)
+        sin_angle = np.sin(angles)
+
+        # Rotate the offset from the grid anchor to the box center.
+        offset_x = (right - left) * 0.5
+        offset_y = (bottom - top) * 0.5
+        center_x = (grid_x + 0.5 + offset_x * cos_angle - offset_y * sin_angle) * stride
+        center_y = (grid_y + 0.5 + offset_x * sin_angle + offset_y * cos_angle) * stride
+        width = (left + right) * stride
+        height = (top + bottom) * stride
+
+        all_boxes.append(np.stack([center_x, center_y, width, height, angles], axis=1))
+        all_scores.append(scores)
+        all_class_ids.append(valid_class_ids)
+
+    if not all_boxes:
         return []
 
-    bboxes = bboxes[valid_indices]
-    scores = scores[valid_indices]
-    class_ids = class_ids[valid_indices]
-    angles = angles[valid_indices]
+    boxes = np.concatenate(all_boxes, axis=0)
+    scores = np.concatenate(all_scores, axis=0)
+    class_ids = np.concatenate(all_class_ids, axis=0)
+
+    # Undo letterbox padding and scaling. Angles remain unchanged.
     pad_x, pad_y = pad
+    boxes[:, 0] = (boxes[:, 0] - pad_x) / scale
+    boxes[:, 1] = (boxes[:, 1] - pad_y) / scale
+    boxes[:, 2] /= scale
+    boxes[:, 3] /= scale
 
-    corners_list = []
-    boxes_xywh = []
-    for bbox, angle_rad in zip(bboxes, angles):
-        center_x = (float(bbox[0]) - pad_x) / scale
-        center_y = (float(bbox[1]) - pad_y) / scale
-        width = float(bbox[2]) / scale
-        height = float(bbox[3]) / scale
-        angle_degrees = float(angle_rad) * 180.0 / np.pi
+    valid_size_mask = (boxes[:, 2] > 0.0) & (boxes[:, 3] > 0.0)
+    boxes = boxes[valid_size_mask]
+    scores = scores[valid_size_mask]
+    class_ids = class_ids[valid_size_mask]
 
-        corners = cv2.boxPoints(((center_x, center_y), (width, height), angle_degrees))
-        corners_list.append(corners)
+    if len(boxes) == 0:
+        return []
 
-        # Use the enclosing axis-aligned rectangle for OpenCV NMS.
-        x_min = float(np.min(corners[:, 0]))
-        y_min = float(np.min(corners[:, 1]))
-        x_max = float(np.max(corners[:, 0]))
-        y_max = float(np.max(corners[:, 1]))
-        boxes_xywh.append([x_min, y_min, x_max - x_min, y_max - y_min])
-
-    boxes_xywh = np.asarray(boxes_xywh, dtype=np.float32)
+    # Run rotated NMS separately for each class.
     selected_indices = []
-
-    # Run NMS separately for each class.
     for class_id in np.unique(class_ids):
         class_indices = np.where(class_ids == class_id)[0]
-        nms_indices = cv2.dnn.NMSBoxes(
-            boxes_xywh[class_indices].tolist(),
+        rotated_rectangles = [
+            (
+                (float(boxes[idx, 0]), float(boxes[idx, 1])),
+                (float(boxes[idx, 2]), float(boxes[idx, 3])),
+                float(boxes[idx, 4] * 180.0 / np.pi)
+            )
+            for idx in class_indices
+        ]
+
+        nms_indices = cv2.dnn.NMSBoxesRotated(
+            rotated_rectangles,
             scores[class_indices].tolist(),
             conf_threshold,
             iou_threshold
         )
 
         if len(nms_indices) > 0:
-            selected_indices.extend(class_indices[nms_indices.flatten()].tolist())
+            selected_indices.extend(class_indices[np.asarray(nms_indices).reshape(-1)].tolist())
 
     selected_indices.sort(key=lambda idx: float(scores[idx]), reverse=True)
 
     detections = []
     for detection_idx in selected_indices:
+        center_x, center_y, width, height, angle_rad = boxes[detection_idx]
+        angle_degrees = float(angle_rad * 180.0 / np.pi)
+        corners = cv2.boxPoints((
+            (float(center_x), float(center_y)),
+            (float(width), float(height)),
+            angle_degrees
+        ))
+
         class_id = int(class_ids[detection_idx])
         detections.append({
-            'bbox': corners_list[detection_idx].tolist(),
-            'class_id': class_id,
-            'class_name': class_names.get(class_id, f'class_{class_id}'),
-            'score': float(scores[detection_idx])
+            "bbox": corners.tolist(),
+            "center": [float(center_x), float(center_y)],
+            "size": [float(width), float(height)],
+            "angle": float(angle_rad),
+            "class_id": class_id,
+            "class_name": class_names.get(class_id, f"class_{class_id}"),
+            "score": float(scores[detection_idx])
         })
 
     return detections

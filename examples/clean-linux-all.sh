@@ -16,59 +16,64 @@
 # limitations under the License.
 #
 
+set -euo pipefail
+
 usage() {
-    echo "Usage: $0 [-m <mode>]"
-    echo "  -m <mode> : What to clean: 'linux', 'yocto', or 'all' (default: all)"
-    echo "  -h        : Show this help message"
+    echo "Usage: $0 [-m <mode>] [-b <arch_bits>]"
+    echo "  -m <mode>      : What to clean: linux, yocto, or all (default: all)"
+    echo "  -b <arch_bits> : Architecture to clean: 32, 64, or all (default: all)"
+    echo "  -h             : Show this help message"
     exit 1
 }
 
-# Default values
 CLEAN_MODE=all
+ARCH_BITS=all
 
-# Parse arguments
-while getopts 'm:h' opt; do
-  case "$opt" in
-    m)
-      CLEAN_MODE=$OPTARG
-      ;;
-    h)
-      usage
-      ;;
-    *)
-      usage
-      ;;
-  esac
+while getopts 'm:b:h' opt; do
+    case "$opt" in
+        m) CLEAN_MODE=$OPTARG ;;
+        b) ARCH_BITS=$OPTARG ;;
+        h) usage ;;
+        *) usage ;;
+    esac
 done
 
-SCRIPT_DIR=$(cd "$(dirname $0)" && pwd)
+if [[ "${CLEAN_MODE}" != "linux" && "${CLEAN_MODE}" != "yocto" && "${CLEAN_MODE}" != "all" ]]; then
+    echo "Error: Mode must be linux, yocto, or all."
+    exit 1
+fi
 
-case "${CLEAN_MODE}" in
-  linux)
-    echo "Cleaning all Linux build directories..."
-    find "${SCRIPT_DIR}" -type d -path "*/build/linux" | while read dir; do
-        echo "  rm -rf ${dir}"
-        rm -rf "${dir}"
+if [[ "${ARCH_BITS}" != "32" && "${ARCH_BITS}" != "64" && "${ARCH_BITS}" != "all" ]]; then
+    echo "Error: Arch bits must be 32, 64, or all."
+    exit 1
+fi
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+MODES=()
+BITS=()
+
+if [[ "${CLEAN_MODE}" == "all" ]]; then
+    MODES=("linux" "yocto")
+else
+    MODES=("${CLEAN_MODE}")
+fi
+
+if [[ "${ARCH_BITS}" == "all" ]]; then
+    BITS=("32" "64")
+else
+    BITS=("${ARCH_BITS}")
+fi
+
+for mode in "${MODES[@]}"; do
+    for bits in "${BITS[@]}"; do
+        echo "Cleaning ${mode} ${bits}-bit build directories..."
+
+        while IFS= read -r -d '' dir; do
+            echo "  rm -rf ${dir}"
+            rm -rf "${dir}"
+        done < <(find "${SCRIPT_DIR}" -type d -path "*/build/${mode}/${bits}" -print0)
     done
-    ;;
-  yocto)
-    echo "Cleaning all Yocto build directories..."
-    find "${SCRIPT_DIR}" -type d -path "*/build/yocto" | while read dir; do
-        echo "  rm -rf ${dir}"
-        rm -rf "${dir}"
-    done
-    ;;
-  all)
-    echo "Cleaning all Linux and Yocto build directories..."
-    find "${SCRIPT_DIR}" -type d \( -path "*/build/linux" -o -path "*/build/yocto" \) | while read dir; do
-        echo "  rm -rf ${dir}"
-        rm -rf "${dir}"
-    done
-    ;;
-  *)
-    echo "Unknown mode: ${CLEAN_MODE}" >&2
-    usage
-    ;;
-esac
+done
 
 echo "Done."

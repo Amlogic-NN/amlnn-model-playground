@@ -224,7 +224,7 @@ build/linux/32/sensevoice_demo
 
 
 
-#### Mode 2: Yocto Build
+#### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 

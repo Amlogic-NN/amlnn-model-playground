@@ -179,13 +179,14 @@ cd examples/ppocr_rec_v4/cpp
 ```
 
 *(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
 The executable will be generated at `build/linux/64/ppocrv4_rec_demo` (or `build/linux/32/ppocrv4_rec_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed

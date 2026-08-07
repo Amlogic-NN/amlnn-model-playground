@@ -10,9 +10,6 @@ link_directories(${AMLNN_LIBRARY_DIR})
 
 include_directories(${CMAKE_SOURCE_DIR}/../../../../common)
 
-# Include directories for json and httplib
-include_directories(${CMAKE_SOURCE_DIR}/../../../../dependency/json)
-include_directories(${CMAKE_SOURCE_DIR}/../../../../dependency/httplib)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # Android needs log
@@ -27,7 +24,6 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 add_executable(mobilesam_demo
     main.cpp
     postprocess.cpp
-    npu_worker.cpp
    ${CMAKE_SOURCE_DIR}/../../../../common/model_loader.cpp
 )
 

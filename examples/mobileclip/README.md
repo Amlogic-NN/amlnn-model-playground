@@ -198,7 +198,7 @@ build/linux/64/mobileclip_demo
 build/linux/32/mobileclip_demo
 ```
 
-#### Mode 2: Yocto Build
+#### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 

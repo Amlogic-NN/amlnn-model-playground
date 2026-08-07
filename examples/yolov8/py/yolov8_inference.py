@@ -100,6 +100,9 @@ def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold,
     # input_shape is a tuple: (input_height, input_width)
     input_h, input_w = input_shape
 
+    if len(outputs) != 6:
+        raise RuntimeError(f"Expected 6 YOLOv8 outputs, got {len(outputs)}")
+
     all_boxes = []
     all_scores = []
     all_class_ids = []
@@ -110,23 +113,50 @@ def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold,
     regression_range = np.arange(regmax, dtype=np.float32)
 
     reg_channels = 4 * regmax
+    strides = [8, 16, 32]
 
-    strides = [32, 16, 8]
-    for idx, output in enumerate(outputs):
-        # output shape is [batch_size, height, width, channels]
-        batch_size, height, width, channels = output.shape
-        output_reshaped = output.reshape(-1, channels)
+    for scale_idx, stride in enumerate(strides):
+        cls_output = np.asarray(outputs[scale_idx * 2], dtype=np.float32)
+        dfl_output = np.asarray(outputs[scale_idx * 2 + 1], dtype=np.float32)
 
-        # 1. Stride calculation
-        stride = strides[idx]
+        # Outputs are NHWC:
+        # cls: [1, H, W, num_classes]
+        # dfl: [1, H, W, 4 * regmax]
+        if cls_output.ndim != 4 or cls_output.shape[0] != 1:
+            raise RuntimeError(
+                f"Expected class output {scale_idx * 2} shape [1, H, W, C], "
+                f"got {cls_output.shape}"
+            )
 
-        dfl_preds = output_reshaped[:, :reg_channels]
-        class_preds = output_reshaped[:, reg_channels:]
+        if dfl_output.ndim != 4 or dfl_output.shape[0] != 1:
+            raise RuntimeError(
+                f"Expected DFL output {scale_idx * 2 + 1} shape [1, H, W, {reg_channels}], "
+                f"got {dfl_output.shape}"
+            )
 
-        # 2. Early filtering
+        _, height, width, num_classes = cls_output.shape
+        _, dfl_height, dfl_width, dfl_channels = dfl_output.shape
+
+        if dfl_height != height or dfl_width != width or dfl_channels != reg_channels:
+            raise RuntimeError(
+                f"DFL output {scale_idx * 2 + 1} shape {dfl_output.shape} does not match "
+                f"expected [1, {height}, {width}, {reg_channels}]"
+            )
+
+        expected_height = input_h // stride
+        expected_width = input_w // stride
+        if height != expected_height or width != expected_width:
+            raise RuntimeError(
+                f"Stride {stride} output grid is {height}x{width}, "
+                f"expected {expected_height}x{expected_width}"
+            )
+
+        class_preds = cls_output.reshape(-1, num_classes)
+        dfl_preds = dfl_output.reshape(-1, reg_channels)
+
+        # Early filtering
         max_raw_scores = np.max(class_preds, axis=1)
         valid_mask = max_raw_scores > inv_thresh
-
         valid_indices = np.where(valid_mask)[0]
 
         if len(valid_indices) == 0:
@@ -140,18 +170,18 @@ def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold,
         max_class_scores = np.max(valid_class_scores, axis=1)
         class_ids = np.argmax(valid_class_scores, axis=1)
 
-        # 3. Grid generation
+        # Grid generation
         grid_y = (valid_indices // width).astype(np.float32)
         grid_x = (valid_indices % width).astype(np.float32)
 
-        # 4. DFL decoding
+        # DFL decoding
         dfl_reshaped = valid_dfl_preds.reshape(-1, 4, regmax)
         dfl_max = np.max(dfl_reshaped, axis=-1, keepdims=True)
         exp_dfl = np.exp(dfl_reshaped - dfl_max)
         dfl_softmax = exp_dfl / np.sum(exp_dfl, axis=-1, keepdims=True)
         bbox_deltas = np.sum(dfl_softmax * regression_range[None, None, :], axis=-1)
 
-        # 5. Absolute coordinates
+        # Absolute coordinates
         anchor_x = (grid_x + 0.5) * stride
         anchor_y = (grid_y + 0.5) * stride
 
@@ -182,8 +212,8 @@ def postprocess(outputs, input_shape, scale, pad, conf_threshold, iou_threshold,
 
     valid_boxes = np.maximum(valid_boxes, 0)
 
-    # 6. Batched NMS
-    max_coord = max(height, width)
+    # Batched NMS
+    max_coord = max(input_h, input_w)
     offsets = valid_class_ids.astype(valid_boxes.dtype) * max_coord
 
     # NMSBoxes needs [x1, y1, w, h]
@@ -289,6 +319,9 @@ def main():
 
     tensor_info = amlnn.get_tensor_info()
 
+    if len(tensor_info["outputs"]) != 6:
+        raise RuntimeError(f"Expected 6 YOLOv8 outputs, got {len(tensor_info['outputs'])}")
+
     print(amlnn.get_sdk_version())
 
     image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
@@ -355,9 +388,6 @@ def main():
         print()
     print(f"=" * 60)
     print(amlnn.get_perf_info())
-
-    # Optional visualization
-    amlnn.perf_visualize()
 
     # Release resources
     amlnn.uninit()

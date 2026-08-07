@@ -28,6 +28,8 @@
 const float SCORE_THRESHOLD = 0.25f;
 const float NMS_THRESHOLD = 0.45f;
 const float MASK_ALPHA = 0.5f;
+const int REG_MAX = 16;
+const int EXPECTED_OUTPUT_NUM = 10;
 namespace fs = std::filesystem;
 
 int main(int argc, char **argv)
@@ -53,9 +55,9 @@ int main(int argc, char **argv)
 
     amlnn_input_output_num io_num;
     amlnn_query(context, AMLNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-    if (io_num.n_output != 4)
+    if (io_num.n_output != EXPECTED_OUTPUT_NUM)
     {
-        std::cerr << "Expected 4 YOLOv8-Seg outputs, but model has "
+        std::cerr << "Expected " << EXPECTED_OUTPUT_NUM << " YOLOv8-Seg outputs, but model has "
                   << io_num.n_output << " outputs." << std::endl;
         uninit_network(context);
         return -1;
@@ -141,12 +143,12 @@ int main(int argc, char **argv)
 
         std::vector<Detection> detections = postprocess(
             out_ptrs, out_shapes, std::make_tuple(preprocessed, scale, pad),
-            SCORE_THRESHOLD, NMS_THRESHOLD);
+            SCORE_THRESHOLD, NMS_THRESHOLD, REG_MAX);
 
         std::cout << "Detections: " << detections.size() << std::endl;
 
         cv::Mat result_img = draw_detections(
-            img, detections, out_ptrs[3], out_shapes[3],
+            img, detections, out_ptrs[EXPECTED_OUTPUT_NUM - 1], out_shapes[EXPECTED_OUTPUT_NUM - 1],
             input_height, input_width, scale, pad, MASK_ALPHA);
         std::string out_path = "yolov8_seg_result/" + it.path().filename().string();
         cv::imwrite(out_path, result_img);

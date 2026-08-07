@@ -16,13 +16,49 @@
 # limitations under the License.
 #
 
-SCRIPT_DIR=$(cd "$(dirname $0)" && pwd)
+set -euo pipefail
 
-echo "Cleaning all Android build directories..."
+usage() {
+    echo "Usage: $0 [-a <target_abi>]"
+    echo "  -a <target_abi> : ABI to clean:"
+    echo "                    arm64-v8a"
+    echo "                    armeabi-v7a"
+    echo "                    all (default)"
+    echo "  -h              : Show this help message"
+    exit 1
+}
 
-find "${SCRIPT_DIR}" -type d -name "build" | while read dir; do
-    echo "  rm -rf ${dir}"
-    rm -rf "${dir}"
+TARGET_ABI=all
+
+while getopts 'a:h' opt; do
+    case "$opt" in
+        a) TARGET_ABI=$OPTARG ;;
+        h) usage ;;
+        *) usage ;;
+    esac
+done
+
+if [[ "${TARGET_ABI}" != "arm64-v8a" && "${TARGET_ABI}" != "armeabi-v7a" && "${TARGET_ABI}" != "all" ]]; then
+    echo "Error: ABI must be arm64-v8a, armeabi-v7a, or all."
+    exit 1
+fi
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+ABIS=()
+if [[ "${TARGET_ABI}" == "all" ]]; then
+    ABIS=("arm64-v8a" "armeabi-v7a")
+else
+    ABIS=("${TARGET_ABI}")
+fi
+
+for abi in "${ABIS[@]}"; do
+    echo "Cleaning Android ${abi} build directories..."
+
+    while IFS= read -r -d '' dir; do
+        echo "  rm -rf ${dir}"
+        rm -rf "${dir}"
+    done < <(find "${SCRIPT_DIR}" -type d -path "*/build/android/${abi}" -print0)
 done
 
 echo "Done."

@@ -46,19 +46,35 @@ def find_updated_adla_files(search_dir, known_files):
 
 def main():
     parser = argparse.ArgumentParser(description="Export ONNX to ADLA")
-    parser.add_argument("--onnx", required=True, help="Path to ONNX model")
-    parser.add_argument("--dataset-path", required=True, help="Path to quant dataset")
-    parser.add_argument("--target-platform", required=True, help="Platform ID, e.g. 001, 002, 003")
-    parser.add_argument("--adla", default="../model", help="Optional output .adla path")
+    parser.add_argument("--onnx", required=True, help="Path to input .onnx model")
+    parser.add_argument("--dataset-path", help="Path to quantization dataset")
+    parser.add_argument("--target-platform", required=True, help="Platform ID, for example: 001, 002, 003")
+    parser.add_argument("--adla", default="../model", help="Output .adla file or directory (default: ../model)")
     args = parser.parse_args()
 
-    search_dir = Path.cwd()
-    known_adla_files = snapshot_adla_files(search_dir) if args.adla else {}
+    model_path = Path(args.onnx).resolve()
+    dataset_path = Path(args.dataset_path).resolve() if args.dataset_path else None
+
+    if not model_path.is_file():
+        raise FileNotFoundError(f"Model not found: {model_path}")
+
+    if dataset_path is not None:
+        if not dataset_path.is_file():
+            raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
+
+        if dataset_path.suffix.lower() != ".txt":
+            raise ValueError(f"Dataset path must be a .txt file: {dataset_path}")
+
+    output_path = get_output_path(args.adla, model_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    search_dirs = {Path.cwd().resolve(), model_path.parent}
+    known_adla_files = snapshot_adla_files(search_dirs)
 
     amlnn = AMLNN()
 
     # NOTE: These node names may vary depending on your model. Please ensure the output order remains the same.
-    amlnn.load_onnx(model=args.onnx, outputs=[
+    amlnn.load_onnx(model=str(model_path), outputs=[
         "/model.22/Concat_1_output_0", # <-- Stride 8 (1x77x60x80 grid)
         "/model.22/Concat_2_output_0", # <-- Stride 16 (1x77x30x40 grid)
         "/model.22/Concat_3_output_0"  # <-- Stride 32 (1x77x15x20 grid)
@@ -70,19 +86,28 @@ def main():
         quantized_dtype="w8a8",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
-    amlnn.compile(dataset=args.dataset_path)
+
+    if dataset_path is None:
+        amlnn.compile()
+    else:
+        amlnn.compile(dataset=str(dataset_path))
+
     amlnn.export_adla()
+    amlnn.uninit()
 
-    if args.adla:
-        new_adla_files = find_updated_adla_files(search_dir, known_adla_files)
-        if not new_adla_files:
-            raise RuntimeError("export_adla did not create or update a .adla file")
+    updated_adla_files = find_updated_adla_files(search_dirs, known_adla_files)
+    if not updated_adla_files:
+        raise RuntimeError("export_adla did not create or update a .adla file")
 
-        output_path = Path(args.adla)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        if new_adla_files[0].resolve() != output_path.resolve():
-            shutil.copy2(new_adla_files[0], output_path)
-        print(f"saved: {output_path}")
+    generated_path = updated_adla_files[0]
+
+    if generated_path != output_path.resolve():
+        shutil.copy2(generated_path, output_path)
+
+    if not output_path.is_file():
+        raise RuntimeError(f"Failed to save ADLA model: {output_path}")
+
+    print(f"saved: {output_path.resolve()}")
 
 
 if __name__ == "__main__":

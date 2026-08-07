@@ -40,6 +40,13 @@ const char *COCO_CLASSES[NUM_CLASSES] = {
     "toaster", "sink", "refrigerator", "book", "clock",
     "vase", "scissors", "teddy bear", "hair drier", "toothbrush"};
 
+const int STRIDES[3] = {8, 16, 32};
+
+static float sigmoid(float value)
+{
+    return 1.0f / (1.0f + std::exp(-value));
+}
+
 static cv::Scalar get_color(int class_id)
 {
     float hue = std::fmod(class_id * 137.508f, 360.0f);
@@ -213,90 +220,199 @@ std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_
 
     return tensor_data;
 }
-
 std::vector<Detection> postprocess(
     const std::vector<float *> &out_ptrs, const std::vector<std::vector<int>> &out_shapes,
     std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-    float conf_thresh, float iou_threshold)
+    float conf_thresh, float iou_threshold, int reg_max)
 {
     float scale = std::get<1>(input_tuple);
     int pad_left = std::get<0>(std::get<2>(input_tuple));
     int pad_top = std::get<1>(std::get<2>(input_tuple));
     std::vector<Detection> detections_orig;
 
-    // Shapes after singleton removal: [4,N], [80,N], [32,N], and [160,160,32].
-    if (out_shapes[0].size() != 2 || out_shapes[0][0] != 4)
-    {
-        std::cerr << "Unexpected bbox output shape." << std::endl;
-        return {};
-    }
-
-    int num_predictions = out_shapes[0][1];
-    if (out_shapes[1].size() != 2 || out_shapes[1][0] != NUM_CLASSES ||
-        out_shapes[1][1] != num_predictions)
-    {
-        std::cerr << "Unexpected class output shape." << std::endl;
-        return {};
-    }
-
-    if (out_shapes[2].size() != 2 || out_shapes[2][0] != NUM_MASK_COEFFICIENTS ||
-        out_shapes[2][1] != num_predictions)
-    {
-        std::cerr << "Unexpected mask coefficient output shape." << std::endl;
-        return {};
-    }
-
-    if (out_shapes[3].size() != 3 || out_shapes[3][0] != 160 ||
-        out_shapes[3][1] != 160 || out_shapes[3][2] != NUM_MASK_COEFFICIENTS)
+    const auto &prototype_shape = out_shapes[9];
+    if ((prototype_shape.size() == 4 &&
+         (prototype_shape[1] != 160 || prototype_shape[2] != 160 || prototype_shape[3] != NUM_MASK_COEFFICIENTS)) ||
+        (prototype_shape.size() == 3 &&
+         (prototype_shape[0] != 160 || prototype_shape[1] != 160 || prototype_shape[2] != NUM_MASK_COEFFICIENTS)) ||
+        (prototype_shape.size() != 3 && prototype_shape.size() != 4))
     {
         std::cerr << "Unexpected prototype output shape." << std::endl;
         return {};
     }
 
-    float *bbox_data = out_ptrs[0];
-    float *class_data = out_ptrs[1];
-    float *mask_coefficient_data = out_ptrs[2];
+    float safe_thresh = std::max(1e-5f, std::min(conf_thresh, 1.0f - 1e-5f));
+    float inv_thresh = std::log(safe_thresh / (1.0f - safe_thresh));
+    int dfl_channels = 4 * reg_max;
 
-    // Bboxes and classes are decoded; mask coefficients remain linear values.
-    for (int prediction_idx = 0; prediction_idx < num_predictions; ++prediction_idx)
+    // Output order: [DFL_8, CLS_8, MASK_8, DFL_16, CLS_16, MASK_16, DFL_32, CLS_32, MASK_32, PROTO].
+    for (int s = 0; s < 3; ++s)
     {
-        float max_score = -1e9f;
-        int class_id = -1;
-        for (int class_idx = 0; class_idx < NUM_CLASSES; ++class_idx)
+        int dfl_idx = s * 3;
+        int class_idx = s * 3 + 1;
+        int mask_idx = s * 3 + 2;
+        int stride = STRIDES[s];
+
+        float *dfl_data = out_ptrs[dfl_idx];
+        float *class_data = out_ptrs[class_idx];
+        float *mask_data = out_ptrs[mask_idx];
+
+        const auto &dfl_shape = out_shapes[dfl_idx];
+        const auto &class_shape = out_shapes[class_idx];
+        const auto &mask_shape = out_shapes[mask_idx];
+
+        int height = 1;
+        int width = 1;
+        int channels = 1;
+
+        if (dfl_shape.size() == 4)
         {
-            float score = class_data[class_idx * num_predictions + prediction_idx];
-            if (score > max_score)
+            height = dfl_shape[1];
+            width = dfl_shape[2];
+            channels = dfl_shape[3];
+        }
+        else if (dfl_shape.size() == 3)
+        {
+            height = dfl_shape[0];
+            width = dfl_shape[1];
+            channels = dfl_shape[2];
+        }
+        else
+        {
+            std::cerr << "Unexpected DFL output shape for output " << dfl_idx << std::endl;
+            continue;
+        }
+
+        if (channels != dfl_channels)
+        {
+            std::cerr << "DFL output " << dfl_idx << " expected " << dfl_channels << " channels, got " << channels << std::endl;
+            continue;
+        }
+
+        int class_height = 1;
+        int class_width = 1;
+        int class_channels = 1;
+
+        if (class_shape.size() == 4)
+        {
+            class_height = class_shape[1];
+            class_width = class_shape[2];
+            class_channels = class_shape[3];
+        }
+        else if (class_shape.size() == 3)
+        {
+            class_height = class_shape[0];
+            class_width = class_shape[1];
+            class_channels = class_shape[2];
+        }
+        else
+        {
+            std::cerr << "Unexpected class output shape for output " << class_idx << std::endl;
+            continue;
+        }
+
+        int mask_height = 1;
+        int mask_width = 1;
+        int mask_channels = 1;
+
+        if (mask_shape.size() == 4)
+        {
+            mask_height = mask_shape[1];
+            mask_width = mask_shape[2];
+            mask_channels = mask_shape[3];
+        }
+        else if (mask_shape.size() == 3)
+        {
+            mask_height = mask_shape[0];
+            mask_width = mask_shape[1];
+            mask_channels = mask_shape[2];
+        }
+        else
+        {
+            std::cerr << "Unexpected mask coefficient output shape for output " << mask_idx << std::endl;
+            continue;
+        }
+
+        if (class_height != height || class_width != width || class_channels != NUM_CLASSES)
+        {
+            std::cerr << "Class output " << class_idx << " does not match [" << height << ", " << width << ", " << NUM_CLASSES << "]" << std::endl;
+            continue;
+        }
+
+        if (mask_height != height || mask_width != width || mask_channels != NUM_MASK_COEFFICIENTS)
+        {
+            std::cerr << "Mask output " << mask_idx << " does not match [" << height << ", " << width << ", " << NUM_MASK_COEFFICIENTS << "]" << std::endl;
+            continue;
+        }
+
+        for (int y = 0; y < height; ++y)
+        {
+            for (int x = 0; x < width; ++x)
             {
-                max_score = score;
-                class_id = class_idx;
+                int cell_idx = y * width + x;
+                const float *class_cell = class_data + cell_idx * NUM_CLASSES;
+                float max_raw_score = -1e9f;
+                int class_id = -1;
+
+                for (int c = 0; c < NUM_CLASSES; ++c)
+                {
+                    if (class_cell[c] > max_raw_score)
+                    {
+                        max_raw_score = class_cell[c];
+                        class_id = c;
+                    }
+                }
+
+                // Skip DFL and mask coefficient decoding for low-confidence cells.
+                if (max_raw_score <= inv_thresh)
+                    continue;
+
+                const float *dfl_cell = dfl_data + cell_idx * dfl_channels;
+                float distances[4] = {};
+
+                // Decode DFL in left, top, right, bottom order.
+                for (int side = 0; side < 4; ++side)
+                {
+                    const float *distribution = dfl_cell + side * reg_max;
+                    float max_value = distribution[0];
+
+                    for (int i = 1; i < reg_max; ++i)
+                        max_value = std::max(max_value, distribution[i]);
+
+                    float sum = 0.0f;
+                    float weighted_sum = 0.0f;
+
+                    for (int i = 0; i < reg_max; ++i)
+                    {
+                        float probability = std::exp(distribution[i] - max_value);
+                        sum += probability;
+                        weighted_sum += probability * static_cast<float>(i);
+                    }
+
+                    distances[side] = weighted_sum / sum;
+                }
+
+                float center_x = (static_cast<float>(x) + 0.5f) * stride;
+                float center_y = (static_cast<float>(y) + 0.5f) * stride;
+
+                Detection detection;
+                detection.x1 = (center_x - distances[0] * stride - pad_left) / scale;
+                detection.y1 = (center_y - distances[1] * stride - pad_top) / scale;
+                detection.x2 = (center_x + distances[2] * stride - pad_left) / scale;
+                detection.y2 = (center_y + distances[3] * stride - pad_top) / scale;
+                detection.score = sigmoid(max_raw_score);
+                detection.class_id = class_id;
+
+                if (detection.x2 <= detection.x1 || detection.y2 <= detection.y1)
+                    continue;
+
+                const float *mask_cell = mask_data + cell_idx * NUM_MASK_COEFFICIENTS;
+                for (int coefficient_idx = 0; coefficient_idx < NUM_MASK_COEFFICIENTS; ++coefficient_idx)
+                    detection.mask_coefficients[coefficient_idx] = mask_cell[coefficient_idx];
+
+                detections_orig.push_back(detection);
             }
         }
-
-        if (max_score <= conf_thresh)
-            continue;
-
-        float center_x = bbox_data[prediction_idx];
-        float center_y = bbox_data[num_predictions + prediction_idx];
-        float width = bbox_data[num_predictions * 2 + prediction_idx];
-        float height = bbox_data[num_predictions * 3 + prediction_idx];
-        if (width <= 0.0f || height <= 0.0f)
-            continue;
-
-        Detection detection;
-        detection.x1 = (center_x - width * 0.5f - pad_left) / scale;
-        detection.y1 = (center_y - height * 0.5f - pad_top) / scale;
-        detection.x2 = (center_x + width * 0.5f - pad_left) / scale;
-        detection.y2 = (center_y + height * 0.5f - pad_top) / scale;
-        detection.score = max_score;
-        detection.class_id = class_id;
-
-        for (int coefficient_idx = 0; coefficient_idx < NUM_MASK_COEFFICIENTS; ++coefficient_idx)
-        {
-            detection.mask_coefficients[coefficient_idx] =
-                mask_coefficient_data[coefficient_idx * num_predictions + prediction_idx];
-        }
-
-        detections_orig.push_back(detection);
     }
 
     return nms_by_class(detections_orig, iou_threshold);

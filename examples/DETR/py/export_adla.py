@@ -97,7 +97,6 @@ def main():
         normalization_mean=[MEAN.tolist()],
         normalization_std=[STD.tolist()],
         quantized_dtype="w16a16",
-        activation_dtype="fp16",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
 

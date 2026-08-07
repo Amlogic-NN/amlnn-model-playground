@@ -37,6 +37,11 @@ SKELETON = [
     (1, 3), (2, 4), (3, 5), (4, 6)
 ]
 
+REG_MAX = 16
+
+def sigmoid(values):
+    return 1.0 / (1.0 + np.exp(-np.clip(values, -80.0, 80.0)))
+
 def letterbox(img, new_shape, color=(114, 114, 114)):
     shape = img.shape[:2]
     scale = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
@@ -82,61 +87,111 @@ def preprocess(img_path, new_shape, scale, zero_point, tensor_type):
     input_tensor = np.expand_dims(input_tensor, axis=0)
     return input_tensor, original_img, resize_scale, pad
 
-def postprocess(outputs, scale, pad, conf_threshold, iou_threshold):
-    if len(outputs) != 4:
-        raise ValueError(f"Expected 4 YOLOv8-Pose outputs, got {len(outputs)}")
+def postprocess(outputs, original_shape, scale, pad, conf_threshold, iou_threshold, reg_max=REG_MAX):
+    if len(outputs) != 6:
+        raise ValueError(f"Expected 6 YOLOv8-Pose outputs, got {len(outputs)}")
 
-    # Fixed decoded layouts: [4,N], [N], [N,17], and [2,N,17].
-    bboxes = np.squeeze(outputs[0]).T
-    confidences = np.squeeze(outputs[1])
-    keypoint_confidences = np.squeeze(outputs[2])
-    keypoints = np.squeeze(outputs[3]).transpose(1, 2, 0)
+    original_h, original_w = original_shape
+    num_keypoints = len(KEYPOINT_NAMES)
+    safe_threshold = np.clip(conf_threshold, 1e-5, 1.0 - 1e-5)
+    inverse_threshold = np.log(safe_threshold / (1.0 - safe_threshold))
+    projection = np.arange(reg_max, dtype=np.float32).reshape(1, reg_max, 1)
+    all_boxes = []
+    all_scores = []
+    all_keypoints = []
+    all_keypoint_confidences = []
 
-    num_predictions = bboxes.shape[0]
-    if bboxes.ndim != 2 or bboxes.shape[1] != 4:
-        raise ValueError(f"Unexpected bbox output shape: {outputs[0].shape}")
-    if confidences.ndim != 1 or confidences.shape[0] != num_predictions:
-        raise ValueError(f"Unexpected confidence output shape: {outputs[1].shape}")
-    if keypoint_confidences.shape != (num_predictions, len(KEYPOINT_NAMES)):
-        raise ValueError(f"Unexpected keypoint confidence shape: {outputs[2].shape}")
-    if keypoints.shape != (num_predictions, len(KEYPOINT_NAMES), 2):
-        raise ValueError(f"Unexpected keypoint coordinate shape: {outputs[3].shape}")
+    # Output order: [DFL_CONF_8, KPT_8, DFL_CONF_16, KPT_16, DFL_CONF_32, KPT_32].
+    strides = [8, 16, 32]
+    for output_idx, stride in enumerate(strides):
+        detection_output = np.squeeze(outputs[output_idx * 2])
+        keypoint_output = np.squeeze(outputs[output_idx * 2 + 1])
+        grid_h, grid_w = detection_output.shape[:2]
+        num_cells = grid_h * grid_w
 
-    valid_indices = np.where(confidences > conf_threshold)[0]
-    if len(valid_indices) == 0:
+        detection_output = detection_output.reshape(num_cells, 4 * reg_max + 1).T
+        keypoint_output = keypoint_output.reshape(num_cells, num_keypoints * 3).T
+
+        if detection_output.shape != (4 * reg_max + 1, num_cells):
+            raise ValueError(f"Unexpected detection shape for stride {stride}: {outputs[output_idx * 2].shape}")
+        if keypoint_output.shape != (num_keypoints * 3, num_cells):
+            raise ValueError(f"Unexpected keypoint shape for stride {stride}: {outputs[output_idx * 2 + 1].shape}")
+
+        dfl_logits = detection_output[:4 * reg_max]
+        confidence_logits = detection_output[4 * reg_max]
+        valid_indices = np.where(confidence_logits > inverse_threshold)[0]
+        if len(valid_indices) == 0:
+            continue
+
+        scores = sigmoid(confidence_logits[valid_indices])
+
+        # Decode four reg_max distributions into left, top, right, and bottom distances.
+        valid_dfl = dfl_logits[:, valid_indices].reshape(4, reg_max, -1)
+        valid_dfl -= np.max(valid_dfl, axis=1, keepdims=True)
+        probabilities = np.exp(valid_dfl)
+        probabilities /= np.sum(probabilities, axis=1, keepdims=True)
+        distances = np.sum(probabilities * projection, axis=1)
+
+        grid_x = (valid_indices % grid_w).astype(np.float32)
+        grid_y = (valid_indices // grid_w).astype(np.float32)
+        center_x = (grid_x + 0.5) * stride
+        center_y = (grid_y + 0.5) * stride
+        x1 = center_x - distances[0] * stride
+        y1 = center_y - distances[1] * stride
+        x2 = center_x + distances[2] * stride
+        y2 = center_y + distances[3] * stride
+
+        # Decode 17 raw keypoints: x, y, confidence logit.
+        valid_keypoints = keypoint_output[:, valid_indices].reshape(num_keypoints, 3, -1)
+        keypoint_x = (valid_keypoints[:, 0] * 2.0 + grid_x) * stride
+        keypoint_y = (valid_keypoints[:, 1] * 2.0 + grid_y) * stride
+        keypoints = np.stack([keypoint_x.T, keypoint_y.T], axis=2)
+        keypoint_confidences = sigmoid(valid_keypoints[:, 2]).T
+
+        all_boxes.append(np.stack([x1, y1, x2, y2], axis=1))
+        all_scores.append(scores)
+        all_keypoints.append(keypoints)
+        all_keypoint_confidences.append(keypoint_confidences)
+
+    if not all_boxes:
         return []
 
-    bboxes = bboxes[valid_indices]
-    confidences = confidences[valid_indices]
-    keypoints = keypoints[valid_indices].copy()
-    keypoint_confidences = keypoint_confidences[valid_indices]
+    boxes = np.concatenate(all_boxes, axis=0)
+    scores = np.concatenate(all_scores, axis=0)
+    keypoints = np.concatenate(all_keypoints, axis=0)
+    keypoint_confidences = np.concatenate(all_keypoint_confidences, axis=0)
 
-    # Convert decoded XYWH boxes and keypoints back to original-image coordinates.
+    # Undo letterbox padding and resize scaling.
     pad_x, pad_y = pad
-    center_x = bboxes[:, 0]
-    center_y = bboxes[:, 1]
-    width = bboxes[:, 2]
-    height = bboxes[:, 3]
-    x1 = (center_x - width / 2.0 - pad_x) / scale
-    y1 = (center_y - height / 2.0 - pad_y) / scale
-    x2 = (center_x + width / 2.0 - pad_x) / scale
-    y2 = (center_y + height / 2.0 - pad_y) / scale
-    boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
-    boxes_xywh = np.stack([x1, y1, width / scale, height / scale], axis=1)
-
+    boxes[:, [0, 2]] = (boxes[:, [0, 2]] - pad_x) / scale
+    boxes[:, [1, 3]] = (boxes[:, [1, 3]] - pad_y) / scale
+    boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, original_w - 1)
+    boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, original_h - 1)
     keypoints[:, :, 0] = (keypoints[:, :, 0] - pad_x) / scale
     keypoints[:, :, 1] = (keypoints[:, :, 1] - pad_y) / scale
 
-    nms_indices = cv2.dnn.NMSBoxes(
-        boxes_xywh.tolist(), confidences.tolist(), conf_threshold, iou_threshold
-    )
+    widths = boxes[:, 2] - boxes[:, 0]
+    heights = boxes[:, 3] - boxes[:, 1]
+    valid_size_mask = (widths > 0.0) & (heights > 0.0)
+    boxes = boxes[valid_size_mask]
+    scores = scores[valid_size_mask]
+    keypoints = keypoints[valid_size_mask]
+    keypoint_confidences = keypoint_confidences[valid_size_mask]
+    widths = widths[valid_size_mask]
+    heights = heights[valid_size_mask]
+
+    if len(boxes) == 0:
+        return []
+
+    boxes_xywh = np.stack([boxes[:, 0], boxes[:, 1], widths, heights], axis=1)
+    nms_indices = cv2.dnn.NMSBoxes(boxes_xywh.tolist(), scores.tolist(), conf_threshold, iou_threshold)
 
     detections = []
     if len(nms_indices) > 0:
         for detection_idx in nms_indices.flatten():
             detections.append({
-                'bbox': boxes_xyxy[detection_idx].tolist(),
-                'confidence': float(confidences[detection_idx]),
+                'bbox': boxes[detection_idx].tolist(),
+                'confidence': float(scores[detection_idx]),
                 'keypoints': keypoints[detection_idx].tolist(),
                 'keypoint_confidences': keypoint_confidences[detection_idx].tolist()
             })
@@ -253,7 +308,7 @@ def main():
                 image_path, input_shape, input_scale, input_zero_point, tensor_type
             )
             outputs = amlnn.inference(inputs=[input_tensor])
-            detections = postprocess(outputs, resize_scale, pad, args.conf, args.nms)
+            detections = postprocess(outputs, original_img.shape[:2], resize_scale, pad, args.conf, args.nms)
 
             if detections:
                 print(f"    Detected {len(detections)} people:")

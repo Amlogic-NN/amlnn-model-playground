@@ -25,6 +25,7 @@
 #include "nnsdk2.h"
 
 constexpr int NUM_KEYPOINTS = 17;
+const float KEYPOINT_THRESHOLD = 0.5f;
 
 struct Detection
 {
@@ -44,9 +45,8 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(
 std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
 std::vector<Detection> postprocess(
     const std::vector<float *> &out_ptrs, const std::vector<std::vector<int>> &out_shapes,
-    std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
-    float conf_thresh, float iou_threshold
-);
+    int input_h, int input_w, std::tuple<cv::Mat, float, std::tuple<int, int>> input_tuple,
+    float conf_thresh, float iou_threshold, int reg_max);
 cv::Mat draw_detections(cv::Mat image, const std::vector<Detection> &detections);
 
 #endif // POSTPROCESS_H

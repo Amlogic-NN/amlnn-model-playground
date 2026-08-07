@@ -54,7 +54,7 @@ cd examples/blazepose_landmark/py
 python export_adla.py \
   --model ../model/pose_landmark_full_float32.tflite \
   --dataset-path ../../../resource/pose_dataset.txt \
-  --target-platform 007 \
+  --target-platform 005 \
   --adla ../model
 ```
 
@@ -194,7 +194,7 @@ GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 
 The executable will be generated at `build/linux/64/blazepose_landmark_demo` (or `build/linux/32/blazepose_landmark_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed

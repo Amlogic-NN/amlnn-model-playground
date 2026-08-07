@@ -24,6 +24,8 @@
 #include <iostream>
 #include <utility>
 
+const int HEATMAP_SEARCH_RADIUS = 9;
+const float HEATMAP_MIN_CONFIDENCE = 0.5f;
 const int MODEL_SIZE = 256;
 const float ROI_SCALE = 2.5f;
 const float PI = 3.14159265358979323846f;
@@ -210,6 +212,55 @@ std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_
     return tensor_data;
 }
 
+static void refine_landmark_from_heatmap(const float *heatmap,
+                                         int heatmap_height, int heatmap_width, int heatmap_channels,
+                                         int landmark_index, float raw_x, float raw_y,
+                                         int search_radius, float min_confidence,
+                                         float &refined_x, float &refined_y)
+{
+    refined_x = raw_x;
+    refined_y = raw_y;
+
+    if (landmark_index < 0 || landmark_index >= heatmap_channels)
+        return;
+
+    int center_col = static_cast<int>(raw_x / MODEL_SIZE * heatmap_width);
+    int center_row = static_cast<int>(raw_y / MODEL_SIZE * heatmap_height);
+
+    if (center_col < 0 || center_col >= heatmap_width || center_row < 0 || center_row >= heatmap_height)
+        return;
+
+    int begin_col = std::max(0, center_col - search_radius);
+    int end_col = std::min(heatmap_width, center_col + search_radius + 1);
+    int begin_row = std::max(0, center_row - search_radius);
+    int end_row = std::min(heatmap_height, center_row + search_radius + 1);
+
+    float confidence_sum = 0.0f;
+    float max_confidence = 0.0f;
+    float weighted_col = 0.0f;
+    float weighted_row = 0.0f;
+
+    for (int row = begin_row; row < end_row; ++row)
+    {
+        for (int col = begin_col; col < end_col; ++col)
+        {
+            int index = (row * heatmap_width + col) * heatmap_channels + landmark_index;
+            float confidence = sigmoid(heatmap[index]);
+
+            confidence_sum += confidence;
+            max_confidence = std::max(max_confidence, confidence);
+            weighted_col += col * confidence;
+            weighted_row += row * confidence;
+        }
+    }
+
+    if (max_confidence < min_confidence || confidence_sum <= 0.0f)
+        return;
+
+    refined_x = weighted_col / (heatmap_width * confidence_sum) * MODEL_SIZE;
+    refined_y = weighted_row / (heatmap_height * confidence_sum) * MODEL_SIZE;
+}
+
 bool postprocess(const std::vector<float *> &out_ptrs,
                  const std::vector<std::vector<int>> &out_shapes,
                  const Roi &roi, int image_width, int image_height,
@@ -220,6 +271,25 @@ bool postprocess(const std::vector<float *> &out_ptrs,
     if (result.score < presence_threshold)
         return false;
 
+    const std::vector<int> &heatmap_shape = out_shapes[3];
+
+    if (heatmap_shape.size() != 3)
+    {
+        std::cerr << "Unexpected heatmap shape" << std::endl;
+        return false;
+    }
+
+    int heatmap_height = heatmap_shape[0];
+    int heatmap_width = heatmap_shape[1];
+    int heatmap_channels = heatmap_shape[2];
+
+    if (heatmap_channels < NUM_POSE_LANDMARKS)
+    {
+        std::cerr << "Heatmap has fewer channels than pose landmarks" << std::endl;
+        return false;
+    }
+
+    const float *heatmap = out_ptrs[3];
     float cosine = std::cos(roi.rotation);
     float sine = std::sin(roi.rotation);
 
@@ -227,7 +297,25 @@ bool postprocess(const std::vector<float *> &out_ptrs,
     {
         const float *raw = out_ptrs[0] + i * 5;
         const float *world = out_ptrs[4] + i * 3;
-        cv::Point2f point = roi_to_image_point(raw[0], raw[1], roi);
+
+        float refined_x;
+        float refined_y;
+
+        refine_landmark_from_heatmap(
+            heatmap,
+            heatmap_height,
+            heatmap_width,
+            heatmap_channels,
+            i,
+            raw[0],
+            raw[1],
+            HEATMAP_SEARCH_RADIUS,
+            HEATMAP_MIN_CONFIDENCE,
+            refined_x,
+            refined_y
+        );
+
+        cv::Point2f point = roi_to_image_point(refined_x, refined_y, roi);
 
         Landmark &landmark = result.landmarks[i];
         landmark.x = point.x / image_width;

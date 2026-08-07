@@ -140,7 +140,7 @@ def main():
 
     amlnn.config(
         quantized_dtype="w8a16",
-        activation_dtype="fp16",
+        activation_dtype="f16",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
 

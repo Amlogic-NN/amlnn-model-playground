@@ -29,8 +29,8 @@ The model conversion is done using the export_adla.py script.
 ```
 cd py
 Usage:   python export_adla.py --onnx ../model/model.onnx \
-                                 --dataset-path ../../../resource/detection_dataset.txt \
-                                 --target-platform 007 \
+                                 --dataset-path ../../../resource/COCO_subset.txt \
+                                 --target-platform 005 \
                                  --adla ../model
 ```
 
@@ -165,7 +165,7 @@ GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 
 The executable will be generated at `build/linux/64/yolov8_seg_demo` (or `build/linux/32/yolov8_seg_demo`).
 
-### Mode 2: Yocto Build
+### Mode 2: Yocto/Debian/Armbian Build
 
 **Prerequisites:**
 - Yocto SDK installed

@@ -17,9 +17,10 @@
 #
 
 usage() {
-    echo "Usage: $0 [-m <mode>] [-b <arch_bits>] [-s <yocto_sdk_root>] [-t <toolchain_file>]"
+    echo "Usage: $0 [-m <mode>] [-a <target_arch>] [-b <arch_bits>] [-s <yocto_sdk_root>] [-t <toolchain_file>]"
     echo "  -m <mode>      : Build mode: 'linux' or 'yocto' (default: linux)"
-    echo "  -b <arch_bits> : Arch bits for yocto mode: 32 or 64 (default: 64)"
+    echo "  -a <arch>      : Target architecture for linux mode (default: aarch64)"
+    echo "  -b <arch_bits> : Arch bits for linux or yocto mode: 32 or 64 (default: 64)"
     echo "  -s <sdk_root>  : Yocto SDK root path (overrides YOCTO_SDK_ROOT env var)"
     echo "  -t <toolchain> : CMake toolchain file (overrides TOOLCHAIN_FILE env var)"
     echo "  -h             : Show this help message"
@@ -34,33 +35,43 @@ CLI_SDK_ROOT=""
 CLI_TOOLCHAIN_FILE=""
 
 # Parse arguments
-while getopts 'm:b:s:t:h' opt; do
-  case "$opt" in
-    m)
-      BUILD_MODE=$OPTARG
-      ;;
-    a)
-      TARGET_ARCH=$OPTARG
-      ;;
-    b)
-      ARCH_BITS=$OPTARG
-      ;;
-    s)
-      CLI_SDK_ROOT=$OPTARG
-      ;;
-    t)
-      CLI_TOOLCHAIN_FILE=$OPTARG
-      ;;
-    h)
-      usage
-      ;;
-    *)
-      usage
-      ;;
-  esac
+while getopts 'm:a:b:s:t:h' opt; do
+    case "$opt" in
+        m)
+            BUILD_MODE=$OPTARG
+            ;;
+        a)
+            TARGET_ARCH=$OPTARG
+            ;;
+        b)
+            ARCH_BITS=$OPTARG
+            ;;
+        s)
+            CLI_SDK_ROOT=$OPTARG
+            ;;
+        t)
+            CLI_TOOLCHAIN_FILE=$OPTARG
+            ;;
+        h)
+            usage
+            ;;
+        *)
+            usage
+            ;;
+    esac
 done
 
-SCRIPT_DIR=$(cd "$(dirname $0)" && pwd)
+if [[ "${BUILD_MODE}" != "linux" && "${BUILD_MODE}" != "yocto" ]]; then
+    echo "Error: Build mode must be 'linux' or 'yocto'."
+    exit 1
+fi
+
+if [[ "${ARCH_BITS}" != "32" && "${ARCH_BITS}" != "64" ]]; then
+    echo "Error: Arch bits must be 32 or 64."
+    exit 1
+fi
+
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 # ---------------------------------------------------------------------------
 # AMLNN SDK discovery (same logic as build-android-all.sh)
@@ -72,8 +83,8 @@ if [ -n "$AMLNN_HOME" ]; then
         exit 1
     fi
     echo "Priority 1: Using AMLNN_HOME from environment: $AMLNN_HOME"
-elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit/nn_runtime" ]; then
-    export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit" && pwd)"
+elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit/amlnn_runtime/nn_runtime" ]; then
+    export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit/amlnn_runtime" && pwd)"
     echo "Priority 3: Using sibling amlnn-toolkit as fallback: $AMLNN_HOME"
 elif [ -d "${SCRIPT_DIR}/../../amlnn-toolkit-a/nn_runtime" ]; then
     export AMLNN_HOME="$(cd "${SCRIPT_DIR}/../../amlnn-toolkit-a" && pwd)"
@@ -85,11 +96,11 @@ else
     echo "Please do one of the following:"
     echo ""
     echo "  Option A (recommended) – set AMLNN_HOME:"
-    echo "    export AMLNN_HOME=/path/to/amlnn-toolkit"
+    echo "    export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime"
     echo "    ./build-linux-all.sh"
     echo ""
     echo "  Option B – clone amlnn-toolkit as a sibling directory:"
-    echo "    git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../amlnn-toolkit"
+    echo "    git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../amlnn-toolkit/amlnn_runtime"
     echo "    ./build-linux-all.sh"
     echo ""
     exit 1
@@ -113,8 +124,8 @@ is_excluded() {
 echo "============================================"
 echo "Building all Linux examples"
 echo "BUILD_MODE: ${BUILD_MODE}"
+echo "ARCH_BITS: ${ARCH_BITS}-bit"
 if [[ "${BUILD_MODE}" == "yocto" ]]; then
-    echo "ARCH_BITS: ${ARCH_BITS}-bit"
     echo "YOCTO_SDK_ROOT: ${CLI_SDK_ROOT:-${YOCTO_SDK_ROOT:-/data/yuandian/tools/poky/4.0.20}}"
 else
     echo "TARGET_ARCH: ${TARGET_ARCH}"
@@ -162,19 +173,21 @@ for EXAMPLE in "${EXAMPLES[@]}"; do
         echo "Cleaning: ${EXAMPLE_DIR}/build/yocto/${ARCH_BITS}"
         rm -rf "${EXAMPLE_DIR}/build/yocto/${ARCH_BITS}"
     else
-        echo "Cleaning: ${EXAMPLE_DIR}/build/linux"
-        rm -rf "${EXAMPLE_DIR}/build/linux"
+        echo "Cleaning: ${EXAMPLE_DIR}/build/linux/${ARCH_BITS}"
+        rm -rf "${EXAMPLE_DIR}/build/linux/${ARCH_BITS}"
     fi
 
-    # Build the extra args to forward to individual build-linux.sh
-    EXTRA_ARGS=(-m "${BUILD_MODE}")
+    # Forward mode and architecture bits to every individual build-linux.sh
+    EXTRA_ARGS=(-m "${BUILD_MODE}" -b "${ARCH_BITS}")
+
     if [[ "${BUILD_MODE}" == "yocto" ]]; then
-        EXTRA_ARGS+=(-b "${ARCH_BITS}")
-        [[ -n "${CLI_SDK_ROOT}" ]]      && EXTRA_ARGS+=(-s "${CLI_SDK_ROOT}")
+        [[ -n "${CLI_SDK_ROOT}" ]] && EXTRA_ARGS+=(-s "${CLI_SDK_ROOT}")
         [[ -n "${CLI_TOOLCHAIN_FILE}" ]] && EXTRA_ARGS+=(-t "${CLI_TOOLCHAIN_FILE}")
     else
         EXTRA_ARGS+=(-a "${TARGET_ARCH}")
     fi
+
+    echo "Command: bash ${BUILD_SCRIPT} ${EXTRA_ARGS[*]}"
 
     if bash "${BUILD_SCRIPT}" "${EXTRA_ARGS[@]}"; then
         SUCCEEDED+=("${EXAMPLE}")
