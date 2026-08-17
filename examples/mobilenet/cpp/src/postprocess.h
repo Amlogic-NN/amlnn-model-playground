@@ -16,27 +16,24 @@
 #ifndef POSTPROCESS_H
 #define POSTPROCESS_H
 
-#include <opencv2/opencv.hpp>
-#include <vector>
 #include <string>
+#include <tuple>
+#include <vector>
+#include <opencv2/opencv.hpp>
 #include "nnsdk2.h"
 
-// Helper function to extract meaningful dimensions (ignores batch dim 1)
 std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr);
 
-// Loads image, applies letterbox, normalizes, and quantizes
-std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape);
+cv::Mat load_image(const std::string &path, int input_height, int input_width);
 
-// Quantize float32 image to int8 for model input
-cv::Mat quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+std::vector<uint8_t> load_direct_input_tensor(const std::string &path, const amlnn_tensor_attr &attr);
 
-// Sorting logits and printing Top-K classes
-void postprocess_topk(float *logits,
-                      int size,
-                      const std::vector<std::string> &labels,
-                      int k = 5);
+cv::Mat preprocess(cv::Mat img, std::tuple<int, int> new_shape);
 
-// Load labels from a text file
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr);
+
+void postprocess_topk(float *buf, int size, const std::vector<std::string> &labels, int k);
+
 std::vector<std::string> load_labels(const std::string &path);
 
 #endif // POSTPROCESS_H

@@ -16,20 +16,29 @@
 
 #include <stdio.h>
 #include <time.h>
+
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
+#include <numeric>
+#include <string>
+#include <vector>
 
+#include "post_process_whisper.h"
+#include "pre_process_whisper.h"
+#include "whisper_assets.h"
 #include "whisper_invoke.h"
-#include "nnsdk2.h"
 
-#define BILLION 1000000000
-#define GET_INFERENCE_TIME (1)
-#define WHISPER_DECODER_INPUTS 48
+#define BILLION 1000000000ULL
+#define OVERLAP_SECONDS 2
+
+namespace fs = std::filesystem;
 
 struct Get_Times
 {
-    uint64_t init_start_time = 0, init_end_time = 0, init_total_time = 0;
-    uint64_t preProcess_start_time = 0, preProcess_end_time = 0, preProcess_total_time = 0;
-    uint64_t invoke_start_time = 0, invoke_end_time = 0, invoke_total_time = 0;
+    uint64_t init_total_time = 0;
+    uint64_t preProcess_total_time = 0;
+    uint64_t invoke_total_time = 0;
     uint64_t total_time = 0;
     std::vector<uint64_t> total_time_group;
 };
@@ -38,97 +47,174 @@ static uint64_t get_time_count()
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)((uint64_t)ts.tv_nsec + (uint64_t)ts.tv_sec * BILLION);
+    return static_cast<uint64_t>(ts.tv_nsec) + static_cast<uint64_t>(ts.tv_sec) * BILLION;
 }
 
 int main(int argc, char **argv)
 {
-    Get_Times encoder_time, decoder_time, whisper_time;
-    Input_Decoder decoder_inputs_data;
-    std::vector<float> encoder_input_data;
-    std::vector<float> encoder_output_data;
-
-    int64_t input_1_data[] = {50257, 50362}; /* init token, for tiny_en or base_en */
-    int input_1_data_size = sizeof(input_1_data) / sizeof(input_1_data[0]);
-
-    int ret = 0;
-    if (argc < 4)
+    if (argc < 5)
     {
-        printf("Usage: %s <encoder.adla> <decoder.adla> <audio.wav>\n", argv[0]);
+        printf("Usage: %s <encoder.adla> <decoder.adla> <audio.wav> <data_bin_dir>\n", argv[0]);
         return -1;
     }
 
-    char *model_path_encoder = argv[1];
-    char *model_path_decoder = argv[2];
-    void *context_enc = NULL;
-    void *context_dec = NULL;
+    const char *model_path_encoder = argv[1];
+    const char *model_path_decoder = argv[2];
+    const std::string audio_path = argv[3];
+    const fs::path data_bin_dir = fs::absolute(argv[4]);
+    const fs::path mel_filter_path = data_bin_dir / "data.bin";
+    const fs::path tokenizer_path = data_bin_dir / "tokenizer_info.bin";
 
-    whisper_time.init_start_time = get_time_count();
+    if (!fs::is_regular_file(mel_filter_path))
+    {
+        std::cerr << "Mel filter file not found: " << mel_filter_path << std::endl;
+        return -1;
+    }
+
+    if (!fs::is_regular_file(tokenizer_path))
+    {
+        std::cerr << "Tokenizer file not found: " << tokenizer_path << std::endl;
+        return -1;
+    }
+
+    set_whisper_mel_filter_path(mel_filter_path.string());
+
+    Get_Times encoder_time, decoder_time, whisper_time;
+    void *context_enc = nullptr;
+    void *context_dec = nullptr;
+    int result = -1;
+
+    const uint64_t init_start_time = get_time_count();
     context_enc = init_network_file(model_path_encoder);
     context_dec = init_network_file(model_path_decoder);
-    whisper_time.init_end_time = get_time_count();
+    whisper_time.init_total_time = (get_time_count() - init_start_time) / 1000000ULL;
 
-    whisper_time.init_total_time = (whisper_time.init_end_time - whisper_time.init_start_time) / 1000000;
-
-    if (context_enc == NULL || context_dec == NULL)
+    if (context_enc == nullptr || context_dec == nullptr)
     {
         printf("Network initialization failed.\n");
+        destroy_network(context_enc);
+        destroy_network(context_dec);
         return -1;
     }
+
+    WhisperModelInfo model_info;
+    if (!query_whisper_model_info(context_enc, context_dec, model_info))
+    {
+        destroy_network(context_enc);
+        destroy_network(context_dec);
+        return -1;
+    }
+
+    print_tensor_info("Encoder input", model_info.encoder_input);
+    print_tensor_info("Encoder output", model_info.encoder_output);
+    print_tensor_info("Decoder input 0", model_info.decoder_ids_input);
+    print_tensor_info("Decoder input 1", model_info.decoder_hidden_input);
+    print_tensor_info("Decoder output", model_info.decoder_output);
+
+    const std::vector<int> encoder_shape = get_tensor_shape(model_info.encoder_input);
+    if (encoder_shape.size() != 2 || encoder_shape[0] != WHISPER_N_MELS)
+    {
+        printf("Expected encoder input shape [1, %d, frames], got ", WHISPER_N_MELS);
+        print_shape(encoder_shape);
+        destroy_network(context_enc);
+        destroy_network(context_dec);
+        return -1;
+    }
+
+    const int n_mel = encoder_shape[0];
+    const int n_frames = encoder_shape[1];
+
+    whisper_vocab vocab = read_token_info(tokenizer_path.string());
+    if (vocab.id_to_token.empty())
+    {
+        printf("Failed to load tokenizer information.\n");
+        destroy_network(context_enc);
+        destroy_network(context_dec);
+        return -1;
+    }
+
+    std::cout << "Mel filter file: " << mel_filter_path << std::endl;
+    std::cout << "Tokenizer file: " << tokenizer_path << std::endl;
 
     if (getenv("GET_TIME"))
     {
         std::cout << "init_whisper_total time : " << whisper_time.init_total_time << "ms" << std::endl;
     }
 
-    std::string provided_audio = argv[3];
-    bool first_run = true;
+    const uint64_t preprocess_start_time = get_time_count();
+    std::vector<std::vector<float>> encoder_inputs = do_pre_process(
+        audio_path,
+        n_mel,
+        n_frames,
+        OVERLAP_SECONDS
+    );
+    whisper_time.preProcess_total_time = (get_time_count() - preprocess_start_time) / 1000000ULL;
 
-    std::string input_str;
-    bool is_finish = false;
-    std::string out_text = "start";
-
-    input_str = provided_audio;
-    first_run = false;
-
-    decoder_inputs_data.input_1_size = WHISPER_DECODER_INPUTS;
-    decoder_inputs_data.input_1 = new int64_t[decoder_inputs_data.input_1_size];
-    std::copy(input_1_data, input_1_data + input_1_data_size, decoder_inputs_data.input_1);
-
-    // Fill remaining with 0
-    std::fill(decoder_inputs_data.input_1 + input_1_data_size,
-              decoder_inputs_data.input_1 + decoder_inputs_data.input_1_size, 0);
-
-    whisper_time.preProcess_start_time = get_time_count();
-
-    encoder_input_data = do_pre_process(input_str);
-
-    whisper_time.preProcess_end_time = get_time_count();
-
-    encoder_output_data = run_network_encoder_process(context_enc, encoder_input_data);
-    encoder_time.invoke_end_time = get_time_count();
-
-    decoder_inputs_data.input_0_size = encoder_output_data.size();
-    decoder_inputs_data.input_0 = new float[decoder_inputs_data.input_0_size];
-    std::copy(encoder_output_data.begin(), encoder_output_data.end(), decoder_inputs_data.input_0);
-
-    whisper_time.preProcess_total_time = (whisper_time.preProcess_end_time - whisper_time.preProcess_start_time) / 1000000;
-    encoder_time.invoke_total_time = (encoder_time.invoke_end_time - whisper_time.preProcess_end_time) / 1000000;
-
-    std::cout << "============================================================" << std::endl;
-    printf("\nAudio Text:\n");
-
-    while (!is_finish)
+    if (encoder_inputs.empty())
     {
-        decoder_time.invoke_start_time = get_time_count();
-        out_text = run_network_decoder(context_dec, &decoder_inputs_data);
-        decoder_time.invoke_end_time = get_time_count();
-        is_finish = is_finish_end();
-        decoder_time.total_time_group.push_back((decoder_time.invoke_end_time - decoder_time.invoke_start_time) / 1000000);
-        std::cout << out_text << std::flush;
+        destroy_network(context_enc);
+        destroy_network(context_dec);
+        return -1;
     }
-    printf("\n");
+
     std::cout << "============================================================" << std::endl;
+    std::cout << "Processing audio: " << audio_path << std::endl;
+    std::cout << "Segments: " << encoder_inputs.size() << std::endl;
+    std::cout << "============================================================" << std::endl;
+
+    std::vector<std::string> segment_transcriptions;
+    segment_transcriptions.reserve(encoder_inputs.size());
+
+    bool inference_ok = true;
+
+    for (size_t segment_index = 0; segment_index < encoder_inputs.size(); ++segment_index)
+    {
+        std::cout << "Processing segment [" << segment_index + 1 << "/" << encoder_inputs.size() << "]..." << std::endl;
+
+        std::vector<float> encoder_output_data;
+        const uint64_t encoder_start_time = get_time_count();
+
+        if (!run_network_encoder_process(
+                context_enc,
+                encoder_inputs[segment_index],
+                model_info.encoder_input,
+                model_info.encoder_output,
+                encoder_output_data))
+        {
+            inference_ok = false;
+            break;
+        }
+
+        const uint64_t encoder_elapsed_ms = (get_time_count() - encoder_start_time) / 1000000ULL;
+        encoder_time.total_time_group.push_back(encoder_elapsed_ms);
+
+        std::string segment_text;
+        if (!run_network_decoder(
+                context_dec,
+                encoder_output_data,
+                model_info,
+                vocab,
+                segment_text,
+                &decoder_time.total_time_group))
+        {
+            inference_ok = false;
+            break;
+        }
+
+        segment_transcriptions.push_back(segment_text);
+        std::cout << "Segment transcription: " << segment_text << std::endl;
+    }
+
+    if (inference_ok)
+    {
+        const std::string final_transcription = merge_transcriptions(segment_transcriptions);
+
+        std::cout << "============================================================" << std::endl;
+        std::cout << "Audio Text:" << std::endl;
+        std::cout << final_transcription << std::endl;
+        std::cout << "============================================================" << std::endl;
+        result = 0;
+    }
 
     if (getenv("GET_OUTPUTS_SIZE"))
     {
@@ -138,44 +224,56 @@ int main(int argc, char **argv)
 
     if (getenv("GET_TIME"))
     {
-        uint64_t total_time_whisper;
-        for (int i = 0; i < decoder_time.total_time_group.size(); i++)
+        encoder_time.invoke_total_time = std::accumulate(
+            encoder_time.total_time_group.begin(),
+            encoder_time.total_time_group.end(),
+            uint64_t{0}
+        );
+        decoder_time.invoke_total_time = std::accumulate(
+            decoder_time.total_time_group.begin(),
+            decoder_time.total_time_group.end(),
+            uint64_t{0}
+        );
+
+        std::cout << "pre-process time             : " << whisper_time.preProcess_total_time << "ms" << std::endl;
+
+        for (size_t i = 0; i < encoder_time.total_time_group.size(); ++i)
         {
-            if (i < 1)
-            {
-                total_time_whisper = whisper_time.preProcess_total_time + encoder_time.invoke_total_time;
-                whisper_time.total_time = total_time_whisper;
-                std::cout << "pre-process time             : " << whisper_time.preProcess_total_time << "ms" << std::endl;
-                std::cout << "encoder_inference_total time : " << encoder_time.invoke_total_time << "ms" << std::endl;
-                std::cout << "============================================================" << std::endl;
-            }
-            decoder_time.invoke_total_time += decoder_time.total_time_group[i];
+            std::cout << "encoder inference time[" << i << "]  : " << encoder_time.total_time_group[i] << "ms" << std::endl;
+        }
+
+        std::cout << "============================================================" << std::endl;
+
+        for (size_t i = 0; i < decoder_time.total_time_group.size(); ++i)
+        {
             std::cout << "decoder inference time[" << i << "]  : " << decoder_time.total_time_group[i] << "ms" << std::endl;
         }
 
-        whisper_time.total_time += decoder_time.invoke_total_time;
+        whisper_time.total_time = whisper_time.preProcess_total_time +
+                                  encoder_time.invoke_total_time +
+                                  decoder_time.invoke_total_time;
+
         std::cout << "============================================================" << std::endl;
-        std::cout << "model->whisper decoder avg : " << decoder_time.invoke_total_time / decoder_time.total_time_group.size() << "ms" << std::endl;
-        std::cout << "model->whisper total time  : " << whisper_time.total_time<< "ms" << std::endl;
-        whisper_time.total_time = decoder_time.invoke_total_time = 0;
-    }
-    encoder_time.total_time_group.clear();
-    std::cout << "============================================================" << std::endl;
 
-    if (decoder_inputs_data.input_0 != nullptr)
-    {
-        delete[] decoder_inputs_data.input_0;
-        decoder_inputs_data.input_0 = nullptr;
-    }
+        if (!encoder_time.total_time_group.empty())
+        {
+            std::cout << "model->whisper encoder avg : "
+                      << encoder_time.invoke_total_time / encoder_time.total_time_group.size()
+                      << "ms" << std::endl;
+        }
 
-    if (decoder_inputs_data.input_1 != nullptr)
-    {
-        delete[] decoder_inputs_data.input_1;
-        decoder_inputs_data.input_1 = nullptr;
+        if (!decoder_time.total_time_group.empty())
+        {
+            std::cout << "model->whisper decoder avg : "
+                      << decoder_time.invoke_total_time / decoder_time.total_time_group.size()
+                      << "ms" << std::endl;
+        }
+
+        std::cout << "model->whisper total time  : " << whisper_time.total_time << "ms" << std::endl;
     }
 
     destroy_network(context_enc);
     destroy_network(context_dec);
 
-    return 0;
+    return result;
 }

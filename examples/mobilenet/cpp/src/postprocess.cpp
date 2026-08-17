@@ -20,6 +20,12 @@
 #include <numeric>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstdint>
+#include <cstring>
+
+const cv::Scalar IMAGENET_MEAN(123.675f, 116.280f, 103.530f);
+const cv::Scalar IMAGENET_STD(58.395f, 57.120f, 57.375f);
 
 #define LOGI(...)            \
     do                       \
@@ -47,7 +53,199 @@ std::vector<int> get_tensor_shape(amlnn_tensor_attr &attr)
     return shape;
 }
 
-std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tuple<int, int> new_shape)
+cv::Mat load_image(const std::string &path, int input_height, int input_width)
+{
+    size_t dot_pos = path.find_last_of('.');
+    if (dot_pos == std::string::npos)
+        return {};
+
+    std::string extension = path.substr(dot_pos);
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (extension == ".jpg" || extension == ".jpeg" || extension == ".png" || extension == ".bmp")
+    {
+        cv::Mat image = cv::imread(path);
+        if (image.empty())
+            std::cerr << "Failed to read image: " << path << std::endl;
+        return image;
+    }
+
+    if (extension == ".txt")
+    {
+        std::ifstream file(path);
+        if (!file)
+        {
+            std::cerr << "Failed to open TXT image: " << path << std::endl;
+            return {};
+        }
+
+        cv::Mat image(input_height, input_width, CV_8UC3);
+        size_t expected_size = static_cast<size_t>(input_height) * input_width * 3;
+
+        for (size_t i = 0; i < expected_size; ++i)
+        {
+            int value;
+            if (!(file >> value))
+            {
+                std::cerr << "Invalid TXT image data size: expected " << expected_size
+                          << " values for " << input_height << "x" << input_width << "x3: " << path << std::endl;
+                return {};
+            }
+
+            if (value < 0 || value > 255)
+            {
+                std::cerr << "TXT image pixel value outside [0, 255]: " << path << std::endl;
+                return {};
+            }
+
+            image.data[i] = static_cast<uint8_t>(value);
+        }
+
+        file >> std::ws;
+        if (!file.eof())
+        {
+            std::cerr << "TXT image contains unexpected extra data: " << path << std::endl;
+            return {};
+        }
+
+        return image;
+    }
+
+    return {};
+}
+
+static size_t get_tensor_type_size(int tensor_type)
+{
+    if (tensor_type == AMLNN_TENSOR_INT8 || tensor_type == AMLNN_TENSOR_UINT8)
+        return sizeof(uint8_t);
+
+    return 0;
+}
+
+std::vector<uint8_t> load_direct_input_tensor(const std::string &path, const amlnn_tensor_attr &attr)
+{
+    size_t dot_pos = path.find_last_of('.');
+    if (dot_pos == std::string::npos)
+        return {};
+
+    std::string extension = path.substr(dot_pos);
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    size_t element_size = get_tensor_type_size(attr.type);
+    if (element_size == 0)
+    {
+        std::cerr << "Direct .bin/.qtxt input only supports INT8 or UINT8 model inputs. Tensor type: "
+                  << attr.type << std::endl;
+        return {};
+    }
+
+    size_t expected_elements = static_cast<size_t>(attr.n_elems);
+    size_t expected_size = expected_elements * element_size;
+
+    if (extension == ".bin")
+    {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (!file)
+        {
+            std::cerr << "Failed to open BIN input: " << path << std::endl;
+            return {};
+        }
+
+        std::streamsize file_size = file.tellg();
+        if (file_size < 0 || static_cast<size_t>(file_size) != expected_size)
+        {
+            std::cerr << "Invalid BIN input size: expected " << expected_size
+                      << " bytes, got " << file_size << ": " << path << std::endl;
+            return {};
+        }
+
+        std::vector<uint8_t> data(expected_size);
+        file.seekg(0, std::ios::beg);
+        file.read(reinterpret_cast<char *>(data.data()), static_cast<std::streamsize>(expected_size));
+
+        if (!file)
+        {
+            std::cerr << "Failed to read BIN input: " << path << std::endl;
+            return {};
+        }
+
+        return data;
+    }
+
+    if (extension == ".qtxt")
+    {
+        std::ifstream file(path);
+        if (!file)
+        {
+            std::cerr << "Failed to open QTXT input: " << path << std::endl;
+            return {};
+        }
+
+        std::vector<uint8_t> data(expected_size);
+
+        if (attr.type == AMLNN_TENSOR_INT8)
+        {
+            int8_t *dst = reinterpret_cast<int8_t *>(data.data());
+
+            for (size_t i = 0; i < expected_elements; ++i)
+            {
+                int value;
+                if (!(file >> value))
+                {
+                    std::cerr << "Invalid QTXT input data size: expected "
+                              << expected_elements << " values: " << path << std::endl;
+                    return {};
+                }
+
+                if (value < -128 || value > 127)
+                {
+                    std::cerr << "QTXT int8 value outside [-128, 127]: " << path << std::endl;
+                    return {};
+                }
+
+                dst[i] = static_cast<int8_t>(value);
+            }
+        }
+        else
+        {
+            uint8_t *dst = data.data();
+
+            for (size_t i = 0; i < expected_elements; ++i)
+            {
+                int value;
+                if (!(file >> value))
+                {
+                    std::cerr << "Invalid QTXT input data size: expected "
+                              << expected_elements << " values: " << path << std::endl;
+                    return {};
+                }
+
+                if (value < 0 || value > 255)
+                {
+                    std::cerr << "QTXT uint8 value outside [0, 255]: " << path << std::endl;
+                    return {};
+                }
+
+                dst[i] = static_cast<uint8_t>(value);
+            }
+        }
+
+        file >> std::ws;
+        if (!file.eof())
+        {
+            std::cerr << "QTXT input contains unexpected extra data: " << path << std::endl;
+            return {};
+        }
+
+        return data;
+    }
+
+    return {};
+}
+
+cv::Mat preprocess(cv::Mat img, std::tuple<int, int> new_shape)
 {
     if (img.empty())
     {
@@ -55,7 +253,6 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
         return {};
     }
 
-    // 1. Convert BGR to RGB
     cv::Mat img_rgb;
     if (img.channels() == 4)
         cv::cvtColor(img, img_rgb, cv::COLOR_RGBA2RGB);
@@ -67,60 +264,74 @@ std::tuple<cv::Mat, float, std::tuple<int, int>> preprocess(cv::Mat img, std::tu
     int target_h = std::get<0>(new_shape);
     int target_w = std::get<1>(new_shape);
 
-    // 2. Direct resize
     cv::Mat resized_img;
-    cv::resize(img_rgb, resized_img, cv::Size(target_w, target_h), 0, 0, cv::INTER_LINEAR);
+    if (img_rgb.rows == target_h && img_rgb.cols == target_w)
+        resized_img = img_rgb;
+    else
+        cv::resize(img_rgb, resized_img, cv::Size(target_w, target_h), 0, 0, cv::INTER_LINEAR);
 
     cv::Mat img_float;
     resized_img.convertTo(img_float, CV_32FC3);
+    cv::subtract(img_float, IMAGENET_MEAN, img_float);
+    cv::divide(img_float, IMAGENET_STD, img_float);
 
-    return std::make_tuple(img_float, 1.0f, std::make_tuple(0, 0));
+    return img_float;
 }
 
-cv::Mat quantize_input(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
+std::vector<uint8_t> prepare_input_tensor(const cv::Mat &float_img, const amlnn_tensor_attr &attr)
 {
+    std::vector<uint8_t> tensor_data;
+
     if (float_img.empty() || float_img.type() != CV_32FC3)
     {
-        LOGE("quantize_input: Invalid input image");
-        return cv::Mat();
+        std::cerr << "prepare_input_tensor: Invalid input image" << std::endl;
+        return tensor_data;
     }
 
-    int total_elements = float_img.total() * float_img.channels();
-    const float *src_ptr = (const float *)float_img.data;
+    int total_elements = static_cast<int>(float_img.total() * float_img.channels());
+    const float *src_ptr = float_img.ptr<float>();
 
-    if (attr.type == 2)
+    if (attr.type == AMLNN_TENSOR_FLOAT32)
     {
-        // INT8 MODE
-        cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8SC3);
-        int8_t *dst_ptr = (int8_t *)quantized_img.data;
-
-        for (int i = 0; i < total_elements; ++i)
-        {
-            float pixel_val = (src_ptr[i] / 127.5f) - 1.0f; // [0, 255] -> [-1.0, 1.0]
-            float q_val = std::round(pixel_val / attr.scale) + attr.zp;
-            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, q_val)));
-        }
-        return quantized_img;
+        tensor_data.resize(total_elements * sizeof(float));
+        std::memcpy(tensor_data.data(), float_img.data, tensor_data.size());
     }
-    else if (attr.type == 3)
+    else if (attr.type == AMLNN_TENSOR_INT16)
     {
-        // UINT8 MODE
-        cv::Mat quantized_img(float_img.rows, float_img.cols, CV_8UC3);
-        uint8_t *dst_ptr = (uint8_t *)quantized_img.data;
-
+        tensor_data.resize(total_elements * sizeof(int16_t));
+        int16_t *dst_ptr = reinterpret_cast<int16_t *>(tensor_data.data());
         for (int i = 0; i < total_elements; ++i)
         {
-            float pixel_val = (src_ptr[i] / 127.5f) - 1.0f; // [0, 255] -> [-1.0, 1.0]
-            float q_val = std::round(pixel_val / attr.scale) + attr.zp;
-            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, q_val)));
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int16_t>(std::max(-32768.0f, std::min(32767.0f, value)));
         }
-        return quantized_img;
+    }
+    else if (attr.type == AMLNN_TENSOR_INT8)
+    {
+        tensor_data.resize(total_elements * sizeof(int8_t));
+        int8_t *dst_ptr = reinterpret_cast<int8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<int8_t>(std::max(-128.0f, std::min(127.0f, value)));
+        }
+    }
+    else if (attr.type == AMLNN_TENSOR_UINT8)
+    {
+        tensor_data.resize(total_elements * sizeof(uint8_t));
+        uint8_t *dst_ptr = reinterpret_cast<uint8_t *>(tensor_data.data());
+        for (int i = 0; i < total_elements; ++i)
+        {
+            float value = std::round(src_ptr[i] / attr.scale) + attr.zp;
+            dst_ptr[i] = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, value)));
+        }
     }
     else
     {
-        LOGE("quantize_input: Unsupported tensor_type %d", attr.type);
-        return cv::Mat();
+        std::cerr << "prepare_input_tensor: Unsupported tensor type " << attr.type << std::endl;
     }
+
+    return tensor_data;
 }
 
 static void softmax(float *data, int size)

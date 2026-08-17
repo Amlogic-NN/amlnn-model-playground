@@ -1,19 +1,19 @@
-# Resnet
+# ResNet
 
-This example runs Resnet with AMLNN. The full flow is:
+This example runs ResNet-50 image classification with AMLNN. The full flow is:
 
-1. Prepare or download an ONNX model.
+1. Prepare or export an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python demo with ADLA model.
+3. Run the Python demo with the ADLA model.
 4. Run the C++ (Linux/Android) demo with the ADLA model.
-5. Check detection images/results.
+5. Check classification results.
 
 ## Directory Layout
 
 ```bash
 examples/resnet/
 ├── cpp/               # C++ demo and build scripts
-├── input/             # Input images for demo
+├── input/             # Input images and classification labels
 ├── model/             # Put ONNX and ADLA models here
 └── py/                # Python conversion and demo scripts
 ```
@@ -32,18 +32,24 @@ The model pre-processing and post-processing code in this example was partially 
 
 ### Export ONNX
 
-Install packages:
+Install the required packages:
 
 ```bash
 pip install torch==2.4.1 torchvision==0.19.1 onnx
 ```
-Run script:
+
+Run the ONNX export script from `examples/resnet/py`:
 
 ```bash
 cd examples/resnet/py
 python onnx_download.py
 ```
-Place the exported `resnet50.onnx` under `examples/resnet/model/`
+
+Place the exported model under:
+
+```text
+examples/resnet/model/resnet50.onnx
+```
 
 ## 2. Convert ONNX To ADLA
 
@@ -55,67 +61,83 @@ python export_adla.py \
   --onnx ../model/resnet50.onnx \
   --dataset-path ../../../resource/classification_dataset.txt \
   --target-platform 007 \
-  --adla ../model
+  --output-dir ../model
 ```
 
-| Parameter         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--onnx`        | `.onnx` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images  |
-| `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
-| `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
+| Parameter           | Description                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `--onnx`            | Path to the input `.onnx` model.                                                                                                         |
+| `--dataset-path`    | (Optional) Path to a `.txt` file containing the input paths used for quantization calibration. Required for `w8a8` and `w8a16 (i16)`.[1] |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md).                                          |
+| `--output-dir`      | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`.                                            |
 
-After conversion, the expected model path is:
+> **[1] Quantization dataset note**
+>
+> A calibration dataset is **not required** when using `activation_dtype="f16"`, such as `w8a16 (f16)` or `w16a16 (f16)`. Set this explicitly in the `amlnn.config()` call.
+>
+> If no dataset is provided, AMLNN generates random calibration data instead of failing, which can severely degrade model accuracy.
+>
+> `activation_dtype` does not apply to `w8a8`. The current ResNet-50 model uses `w8a8` and therefore requires a calibration dataset for proper quantization.
+
+After conversion, the generated filename from AMLNN is preserved. For the `resnet50.onnx` model with the current `w8a8` configuration, the expected model path is:
 
 ```text
 examples/resnet/model/resnet50_w8a8.adla
 ```
+
 ## 3. Run Python Demo
 
-**Prerequisites:**
-- Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+### Prerequisites
 
-**Install dependencies:**
+* Python 3.10
+* Required packages: `numpy`, `opencv-python`, `amlnn`
+
+### Install Dependencies
+
 ```bash
 pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
-**Run on device:**
+### Run on Device
+
 ```bash
 python resnet_inference.py \
-    --model-path ../model/resnet50_w8a8.adla \
+    --adla ../model/resnet50_w8a8.adla \
     --labels ../input/labels.txt \
     --image-dir ../input
 ```
+
 Argument Descriptions:
-| Argument         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
-| `--labels` | Path to `labels.txt` |
-|` --image-dir`   | Directory containing test images |
 
-The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
+| Argument      | Description                                             |
+| ------------- | ------------------------------------------------------- |
+| `--adla`      | Path to the compiled ResNet-50 model in `.adla` format. |
+| `--labels`    | Path to the ImageNet classification labels `.txt` file. |
+| `--image-dir` | Directory containing test images.                       |
 
+The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the specified image directory and print the Top-5 classification results to the console.
 
 ## 4. Run C++ Demo
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+#### Prerequisites
 
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
 
-**1. Setup Environment:**
+#### 1. Setup Environment
+
 Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
+#### 2. Build
+
 Navigate to the C++ directory and run the build script.
 
 ```bash
@@ -128,14 +150,19 @@ cd examples/resnet/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/resnet_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-#### 2. Run
+* 64-bit: `build/android/arm64-v8a/resnet_demo`
+* 32-bit: `build/android/armeabi-v7a/resnet_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/resnet_demo /data/local/tmp/
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/resnet_demo /data/local/tmp/
 adb push ../model/resnet50_w8a8.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
@@ -143,29 +170,36 @@ adb push ../input/ /data/local/tmp/
 adb shell
 cd /data/local/tmp
 chmod +x resnet_demo
-export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
+export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./resnet_demo <model_path> <image_dir> <labels.txt>
 ./resnet_demo resnet50_w8a8.adla input/ input/labels.txt
 ```
 
-**Note:** Replace `resnet50_w8a8.adla` with your actual model file path.
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/resnet_demo` and the corresponding 32-bit library path. Replace `resnet50_w8a8.adla` with your actual model file name.
 
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory).
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -177,9 +211,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
 cd examples/resnet/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -187,45 +223,59 @@ cd examples/resnet/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/resnet_demo` (or `build/linux/32/resnet_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/resnet_demo`
+* 32-bit: `build/linux/32/resnet_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory).
+
+##### 2. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
+##### 3. Build
+
+```bash
 cd examples/resnet/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/resnet_demo` (or `build/yocto/32/resnet_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/resnet_demo`
+* 32-bit: `build/yocto/32/resnet_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/resnet_demo /data/local/tmp/
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/resnet_demo /data/local/tmp/
 adb push ../model/resnet50_w8a8.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
@@ -238,29 +288,33 @@ chmod +x resnet_demo
 ./resnet_demo resnet50_w8a8.adla input/ input/labels.txt
 ```
 
-**Note:** Replace `resnet50_w8a8.adla` with your actual model file name.
+> **Note:** Replace `resnet50_w8a8.adla` with your actual model file name. Adjust the executable path if using a 32-bit or Yocto build.
 
-## 5.Results
+## 5. Results
 
-**Performance Feedback**
+### Performance Feedback
 
-By setting the loglevel to INFO, the program provides real-time performance metrics upon completion. The console log will display essential hardware and execution details, including:
-- Hardware Information: System and ADLA library versions.
-- Model Overview: Basic input/output configurations.
-- NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
+By setting the log level to `INFO`, the program provides runtime performance information after inference. The console output may include:
 
-**Classification Output**
+* **Hardware Information:** System and ADLA library versions.
+* **Model Overview:** Input and output tensor configurations.
+* **NPU Metrics:** Inference latency and DRAM bandwidth usage.
 
-For each image, the program prints the Top-5 classification results with their respective scores:
-```bash
+### Classification Output
+
+For each input image, the program prints the Top-5 classification results with their respective scores to the console.
+
+Example output:
+
+```text
 ============================================================
 Processing image 1/1: dog.jpg
-============================================================                                                                                                                                                                                  
+============================================================
  Top-5 Results:
       1. Blenheim spaniel       score=13.029234
       2. Shih-Tzu               score=9.495882
       3. flat-coated retriever  score=9.495882
       4. Leonberg               score=8.391710
       5. Pembroke               score=8.170876
-============================================================ 
+============================================================
 ```

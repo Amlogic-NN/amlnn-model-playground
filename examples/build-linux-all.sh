@@ -109,12 +109,13 @@ fi
 # ---------------------------------------------------------------------------
 # Demos to exclude (directory name under examples/)
 # ---------------------------------------------------------------------------
-EXCLUDE_DIRS=("LLMs")
+EXCLUDE_DIRS=()
 
 is_excluded() {
     local demo="$1"
+    local demo_dir="${demo%%/*}"
     for excl in "${EXCLUDE_DIRS[@]}"; do
-        if [[ "$demo" == *"${excl}"* ]]; then
+        if [[ "$demo_dir" == "$excl" ]]; then
             return 0
         fi
     done

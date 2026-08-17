@@ -4,15 +4,16 @@ This example runs EVA02 with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python demo with ADLA model.
+3. Run the Python demo with the ADLA model.
 4. Run the C++ (Linux/Android) demo with the ADLA model.
-5. Check detection images/results.
+5. Check classification results.
 
-## Directory layout
+## Directory Layout
+
 ```bash
 examples/eva02/
 ├── cpp/               # C++ demo and build scripts
-├── input/             # Input images for demo
+├── input/             # Input images and ImageNet labels
 ├── model/             # Put ONNX and ADLA models here
 └── py/                # Python conversion and demo scripts
 ```
@@ -51,77 +52,105 @@ Parts of the model preprocessing and postprocessing code in this example were de
 
 ## 1. Prepare The ONNX Model
 
-### Download onnx
+### Download ONNX
 
-Download the prepared onnx model and put it under `examples/eva02/model/`:
+Download the prepared EVA02 ONNX model:
 
-[Download EVA02 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/EVA02/eva02_base_sim.onnx)
+### [Download EVA02 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/EVA02/eva02_base_sim.onnx)
 
-[Download Imagenet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+Download the ImageNet class names:
 
-Place the downloaded `eva02_base_sim.onnx` under `examples/eva02/model/`
+### [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
-## 2. Model Conversion
-The model conversion is done using the export_adla.py script.
-```bash
-cd py
-Usage:   python export_adla.py --onnx ../model/eva02_base_sim.onnx \
-                               --target-platform 007
+Place the downloaded ONNX model under `examples/eva02/model/` and the labels file under `examples/eva02/input/`.
+
+Expected paths:
+
+```text
+examples/eva02/model/eva02_base_sim.onnx
+examples/eva02/input/labels.txt
 ```
 
-| Parameter         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--onnx`        | `.onnx` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
-| `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
-| `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
+## 2. Convert ONNX To ADLA
 
+Run the ADLA export script from `examples/eva02/py`:
+
+```bash
+cd examples/eva02/py
+python export_adla.py \
+  --onnx ../model/eva02_base_sim.onnx \
+  --target-platform 007 \
+  --output-dir ../model
+```
+
+| Parameter           | Description                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `--onnx`            | Path to the EVA02 `.onnx` model.                                                                |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md). |
+| `--output-dir`      | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`.   |
+
+
+After conversion, AMLNN's generated filename is preserved.
+
+Expected model path:
+
+```text
+examples/eva02/model/eva02_base_sim_w16a16.adla
+```
 
 ## 3. Run Python Demo
 
-**Prerequisites:**
-- Python 3.10
-- Required packages: `amlnn`
+### Prerequisites
 
-**Install dependencies:**
+* Python 3.10
+* Required packages: `amlnn`
+
+### Install Dependencies
+
 ```bash
 pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
-**Run on device:**
+### Run on Device
+
 ```bash
 python eva02_inference.py \
-    --model-path ../model/model.adla \
+    --adla ../model/eva02_base_sim_w16a16.adla \
     --image-dir ../input \
     --labels ../input/labels.txt
 ```
+
 Argument Descriptions:
 
-| Argument             | Description                                                                  |
-| -------------------- | ---------------------------------------------------------------------------- |
-| `--model-path`       | Path to the eva02 `.adla` model                                      |
-| `--image-dir`        | Directory containing test images                                             |
-| `--labels`           | Path to the ImageNet class names `.txt` file                                 |
+| Argument      | Description                                   |
+| ------------- | --------------------------------------------- |
+| `--adla`      | Path to the EVA02 `.adla` model.              |
+| `--image-dir` | Directory containing test images.             |
+| `--labels`    | Path to the ImageNet class names `.txt` file. |
 
-The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
+The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the specified image directory and save the classification result images to the model result directory.
 
 ## 4. Run C++ Demo
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+#### Prerequisites
 
-**1. Setup Environment:**
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+
+#### 1. Setup Environment
+
 Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
+#### 2. Build
+
 Navigate to the C++ directory and run the build script.
 
 ```bash
@@ -134,44 +163,56 @@ cd examples/eva02/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/eva02_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-**Run:**
+* 64-bit: `build/android/arm64-v8a/eva02_demo`
+* 32-bit: `build/android/armeabi-v7a/eva02_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/eva02_demo /data/local/tmp/
-adb push ../model/eva02_base_sim.adla /data/local/tmp/
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/eva02_demo /data/local/tmp/
+adb push ../model/eva02_base_sim_w16a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
 # Run on device
 adb shell
 cd /data/local/tmp
 chmod +x eva02_demo
-export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
+export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./eva02_demo <model_path> <image_dir> <labels.txt>
-./eva02_demo eva02_base_sim.adla input/ input/labels.txt
+./eva02_demo eva02_base_sim_w16a16.adla input/ input/labels.txt
 ```
 
-**Note:** Replace `eva02_base_sim.adla` with your actual model file path.
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/eva02_demo` and the corresponding 32-bit library path. Replace the `.adla` filename with your actual generated model filename.
 
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -183,9 +224,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
 cd examples/eva02/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -193,46 +236,60 @@ cd examples/eva02/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/eva02_demo` (or `build/linux/32/eva02_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/eva02_demo`
+* 32-bit: `build/linux/32/eva02_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory).
+
+##### 2. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
+##### 3. Build
+
+```bash
 cd examples/eva02/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/eva02_demo` (or `build/yocto/32/eva02_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/eva02_demo`
+* 32-bit: `build/yocto/32/eva02_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/eva02_demo /data/local/tmp/
-adb push ../model/eva02_base_sim.adla /data/local/tmp/
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/eva02_demo /data/local/tmp/
+adb push ../model/eva02_base_sim_w16a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
 # Run on device
@@ -241,23 +298,26 @@ cd /data/local/tmp
 chmod +x eva02_demo
 
 # Usage: ./eva02_demo <model_path> <image_dir> <labels.txt>
-./eva02_demo eva02_base_sim.adla input/ input/labels.txt
+./eva02_demo eva02_base_sim_w16a16.adla input/ input/labels.txt
 ```
 
-**Note:** Replace `eva02_base_sim.adla` with your actual model file name.
+> **Note:** Replace the `.adla` filename with your actual generated model filename. Adjust the executable path if using a 32-bit or Yocto build.
 
 ## 5. Results
 
-**Performance Feedback**
+### Performance Feedback
 
-By setting the loglevel to INFO, the program provides real-time performance metrics upon completion. The console log will display essential hardware and execution details, including:
-- Hardware Information: System and ADLA library versions.
-- Model Overview: Basic input/output configurations.
-- NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
+By setting the log level to `INFO`, the program provides runtime performance information after inference. The console output may include:
 
-**Classification Output**
+* **Hardware Information:** System and ADLA library versions.
+* **Model Overview:** Input and output tensor configurations.
+* **NPU Metrics:** Inference latency and DRAM bandwidth usage.
 
-For each image, the program prints the Top-5 classification results with their respective scores:
+### Classification Output
+
+For each input image, the program prints the Top-5 classification results with their respective scores.
+
+Example:
 
 ```text
 ============================================================
@@ -270,6 +330,5 @@ Top 5 results:
   3. grey fox (0.0080)
   4. Arctic fox (0.0024)
   5. coyote (0.0021)
-Result saved to: eva02_result/fox.jpg
 ============================================================
 ```

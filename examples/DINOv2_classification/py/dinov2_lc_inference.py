@@ -105,8 +105,8 @@ def postprocess(output, class_names, topk):
 
 def main():
     parser = argparse.ArgumentParser(description="DINOv2 Linear Classification Single-Input ADLA Demo")
-    parser.add_argument("--backbone-model", required=True, help="Path to DINOv2 ViT-S/14 backbone .adla model")
-    parser.add_argument("--classifier-model", required=True, help="Path to DINOv2 single-input linear classifier .adla model")
+    parser.add_argument("--backbone", required=True, help="Path to DINOv2 ViT-S/14 backbone .adla model")
+    parser.add_argument("--classifier", required=True, help="Path to DINOv2 single-input linear classifier .adla model")
     parser.add_argument("--image-dir", required=True, help="Directory containing test images")
     parser.add_argument("--labels", required=True, help="Path to ImageNet class names")
     parser.add_argument("--topk", type=int, default=5, help="Number of results to print")
@@ -120,12 +120,12 @@ def main():
 
     backbone = AMLNN()
     backbone.init_runtime(mode="native", enable_perf=True)
-    backbone.load_model(path=args.backbone_model)
+    backbone.load_model(path=args.backbone)
     backbone_info = backbone.get_tensor_info()
 
     classifier = AMLNN()
     classifier.init_runtime(mode="native", enable_perf=True)
-    classifier.load_model(path=args.classifier_model)
+    classifier.load_model(path=args.classifier)
     classifier_info = classifier.get_tensor_info()
 
     print(backbone.get_sdk_version())

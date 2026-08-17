@@ -95,4 +95,4 @@ cmake -Wno-dev \
 # Build
 cmake --build "${BUILD_DIR}" --config Release -j4
 
-echo "Build complete. Executable in ${BUILD_DIR}/dinov2_dd_demo"
+echo "Build complete. Executable in ${BUILD_DIR}/dinov2_de_demo"

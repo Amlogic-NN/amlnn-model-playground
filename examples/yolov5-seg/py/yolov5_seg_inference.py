@@ -280,7 +280,7 @@ def draw_detections(img, detections, prototype_mask, input_shape, scale, pad, ma
 
 def main():
     parser = argparse.ArgumentParser(description='YOLOv5-Seg Demo')
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     parser.add_argument('--conf', type=float, default=0.3)
     parser.add_argument('--nms', type=float, default=0.45)
@@ -289,7 +289,7 @@ def main():
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode='native', enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
     tensor_info = amlnn.get_tensor_info()
     print(amlnn.get_sdk_version())
 
@@ -335,7 +335,7 @@ def main():
             else:
                 print("    No objects detected")
 
-            result_dir = f"{Path(args.model_path).stem}_result"
+            result_dir = f"{Path(args.adla).stem}_result"
             os.makedirs(result_dir, exist_ok=True)
             save_path = os.path.join(result_dir, f"{Path(image_path).stem}_result.jpg")
             draw_detections(
@@ -350,7 +350,7 @@ def main():
 
     print("=" * 60)
     print(amlnn.get_perf_info())
-    amlnn.perf_visualize()
+    # amlnn.perf_visualize()
     amlnn.uninit()
     return 0
 

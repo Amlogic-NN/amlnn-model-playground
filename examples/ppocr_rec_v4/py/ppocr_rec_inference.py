@@ -149,21 +149,21 @@ def draw_detections(image, text, score):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PPOCR Rec Demo (Universal: FP16/INT8/UINT8)")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser = argparse.ArgumentParser(description="PPOCRv4 Rec Demo")
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
-    parser.add_argument('--dict-path', required=True, help='Path to PP-OCR dictionary.txt file')
+    parser.add_argument('--dict', required=True, help='Path to PP-OCR dictionary.txt file')
     args = parser.parse_args()
 
     print("PPOCR Rec Demo")
 
     # 1. Load Dictionary
-    char_dict = load_dictionary(args.dict_path)
+    char_dict = load_dictionary(args.dict)
 
     # 2. Initialize Runtime and Load Model
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     print(amlnn.get_sdk_version())
 
@@ -190,7 +190,7 @@ def main():
         return
 
     # 4. Generate Output Directory
-    model_stem = Path(args.model_path).stem
+    model_stem = Path(args.adla).stem
     result_dir = f"{model_stem}_result"
     os.makedirs(result_dir, exist_ok=True)
 

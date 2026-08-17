@@ -35,26 +35,82 @@ def load_class_names(path):
         print(f"Warning: Could not load class names from '{path}'. Fallback to generic IDs.")
         return {}
 
-def preprocess(img_path, new_shape=(640, 640), data_format='NHWC', s=0.003789, zp=-128, tensor_type=2):
-    img = cv2.imread(img_path)
-    if img is None:
-        raise ValueError(f"can't read image: {img_path}")
+def get_quant_dtype(tensor_type):
+    if tensor_type == 2:
+        return np.int8
+    if tensor_type == 3:
+        return np.uint8
+    raise ValueError(f"Unsupported quantized tensor type: {tensor_type}")
+
+def load_image(img_path, image_shape):
+    extension = os.path.splitext(img_path)[1].lower()
+
+    if extension in (".jpg", ".jpeg", ".png", ".bmp"):
+        img = cv2.imread(img_path)
+        if img is None:
+            raise ValueError(f"can't read image: {img_path}")
+        return img
+
+    if extension == ".txt":
+        with open(img_path, "r") as f:
+            values = np.fromstring(f.read(), sep=" ", dtype=np.int32)
+
+        height, width = image_shape
+        expected_size = height * width * 3
+        if values.size != expected_size:
+            raise ValueError(
+                f"invalid .txt image data size: expected {expected_size} values for "
+                f"{height}x{width}x3, got {values.size}"
+            )
+
+        if np.any((values < 0) | (values > 255)):
+            raise ValueError(f".txt image pixel values must be in [0, 255]: {img_path}")
+
+        return values.astype(np.uint8).reshape(height, width, 3)
+
+    raise ValueError(f"unsupported image input file: {img_path}")
+
+def load_quantized_input(input_path, input_shape, tensor_type):
+    extension = os.path.splitext(input_path)[1].lower()
+    dtype = get_quant_dtype(tensor_type)
+    model_input_shape = (1, input_shape[0], input_shape[1], 3)
+    expected_size = int(np.prod(model_input_shape))
+
+    if extension == ".bin":
+        values = np.fromfile(input_path, dtype=dtype)
+    elif extension == ".qtxt":
+        with open(input_path, "r") as f:
+            values = np.fromstring(f.read(), sep=" ", dtype=np.int32)
+
+        if tensor_type == 2 and np.any((values < -128) | (values > 127)):
+            raise ValueError(f".qtxt int8 values must be in [-128, 127]: {input_path}")
+        if tensor_type == 3 and np.any((values < 0) | (values > 255)):
+            raise ValueError(f".qtxt uint8 values must be in [0, 255]: {input_path}")
+
+        values = values.astype(dtype)
+    else:
+        raise ValueError(f"unsupported quantized input file: {input_path}")
+
+    if values.size != expected_size:
+        raise ValueError(
+            f"invalid {extension} input size: expected {expected_size} values for "
+            f"model input {model_input_shape}, got {values.size}"
+        )
+
+    return values.reshape(model_input_shape)
+
+def preprocess(img_path, new_shape, s, zp, tensor_type):
+    img = load_image(img_path, new_shape)
 
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, new_shape, interpolation=cv2.INTER_LINEAR)
+    img = cv2.resize(img, (new_shape[1], new_shape[0]), interpolation=cv2.INTER_LINEAR)
     img = img.astype(np.float32)
 
     # NOTE: Change this based on which model you are using
-    img = (img / 127.5) - 1.0 # TFLite Normalization
-    # img = (img - MEAN) / STD # Onnx ImageNet Normalization
+    # img = (img / 127.5) - 1.0 # TFLite Normalization
+    img = (img - MEAN) / STD # Onnx ImageNet Normalization
 
-    if data_format == 'NCHW':
-        input_tensor = np.transpose(img, (2, 0, 1))
-        input_tensor = np.expand_dims(input_tensor, axis=0)
-    elif data_format == 'NHWC':
-        input_tensor = np.expand_dims(img, axis=0)
-    else:
-        raise ValueError(f"Unsupported data format: {data_format}.")
+    input_tensor = np.expand_dims(img, axis=0)
 
     raw_val = np.round(input_tensor / s + zp)
     if tensor_type == 2:
@@ -78,7 +134,7 @@ def postprocess_topk(logits, labels, k=5):
 
 def main():
     parser = argparse.ArgumentParser(description="Mobilenet Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--labels', required=True, help='Path to labels.txt')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     args = parser.parse_args()
@@ -87,7 +143,7 @@ def main():
 
     amlnn.init_runtime(mode="native", enable_perf=True)
 
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
 
@@ -100,7 +156,7 @@ def main():
     # load labels
     labels = load_class_names(args.labels)
 
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
+    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.txt", "*.bin", "*.qtxt"]
     image_files = []
     for ext in image_extensions:
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
@@ -116,6 +172,9 @@ def main():
     print()
 
     tensor_attr = tensor_info["inputs"][0]
+    input_h = int(tensor_attr["dims"][1])
+    input_w = int(tensor_attr["dims"][2])
+    input_shape = (input_h, input_w)
     s = float(tensor_attr["scale"])
     zp = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
@@ -127,8 +186,13 @@ def main():
         print(f"=" * 60)
 
         try:
-            # Preprocess input
-            input_tensor = preprocess(image_path, new_shape = (224, 224), data_format ="NHWC", s=s, zp=zp, tensor_type=tensor_type)
+            extension = os.path.splitext(image_path)[1].lower()
+
+            # Preprocess image inputs; .bin and .qtxt are already quantized model inputs.
+            if extension in (".bin", ".qtxt"):
+                input_tensor = load_quantized_input(image_path, input_shape, tensor_type)
+            else:
+                input_tensor = preprocess(image_path, input_shape, s, zp, tensor_type)
 
             # Run inference
             outputs = amlnn.inference(
@@ -145,7 +209,8 @@ def main():
     print(amlnn.get_perf_info())
 
     # Optional visualization
-    amlnn.perf_visualize()
+    # amlnn.perf_visualize()
+
     # Release resources
     amlnn.uninit
 

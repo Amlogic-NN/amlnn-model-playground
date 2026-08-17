@@ -120,12 +120,12 @@ if [[ "${BUILD_MODE}" == "yocto" ]]; then
     fi
     STRIP_TOOL="${HOST_SYSROOT}/usr/bin/${CROSS_TRIPLE}/${CROSS_TRIPLE}-strip"
     if [[ -x "${STRIP_TOOL}" ]]; then
-        "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/dinov2_dd_demo"
+        "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/dinov2_de_demo"
     else
         echo "warning: strip tool not found; keeping debug info." >&2
     fi
 
-    echo "Build complete. Executable in ${BUILD_DIR}/dinov2_dd_demo"
+    echo "Build complete. Executable in ${BUILD_DIR}/dinov2_de_demo"
     exit 0
 fi
 
@@ -202,9 +202,9 @@ fi
 
 # Strip binary
 if command -v "${STRIP_TOOL}" &> /dev/null; then
-    "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/dinov2_dd_demo"
+    "${STRIP_TOOL}" --strip-unneeded "${BUILD_DIR}/dinov2_de_demo"
 else
     echo "warning: strip tool '${STRIP_TOOL}' not found; keeping debug info." >&2
 fi
 
-echo "Build complete. Executable in ${BUILD_DIR}/dinov2_dd_demo"
+echo "Build complete. Executable in ${BUILD_DIR}/dinov2_de_demo"

@@ -205,17 +205,17 @@ def draw_detections(img, detections, save_path):
     cv2.imwrite(save_path, result_img)
 
 def main():
-    parser = argparse.ArgumentParser(description="BlazePose detector ADLA demo")
-    parser.add_argument('--model-path', required=True, help='Path to detector .adla model')
+    parser = argparse.ArgumentParser(description="BlazePose detection ADLA demo")
+    parser.add_argument('--adla', required=True, help='Path to detector .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
-    parser.add_argument('--anchor-path', default="anchors.npy", help='Path to anchor.npy')
+    parser.add_argument('--anchor', default="anchors.npy", help='Path to anchor.npy')
     parser.add_argument('--conf', type=float, default=0.5)
     parser.add_argument('--nms', type=float, default=0.3)
     args = parser.parse_args()
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
     tensor_info = amlnn.get_tensor_info()
 
     print(amlnn.get_sdk_version())
@@ -240,7 +240,7 @@ def main():
         print(f"No image files found in {args.image_dir}")
         return 0
 
-    anchor_path = Path(args.anchor_path)
+    anchor_path = Path(args.anchor)
     if not anchor_path.is_file():
         raise FileNotFoundError(f"Anchor file not found: {anchor_path}")
 
@@ -265,7 +265,7 @@ def main():
         print(f"  - {os.path.basename(img_file)}")
     print()
 
-    result_dir = f"{Path(args.model_path).stem}_result"
+    result_dir = f"{Path(args.adla).stem}_result"
     os.makedirs(result_dir, exist_ok=True)
 
     for i, image_path in enumerate(image_files, 1):

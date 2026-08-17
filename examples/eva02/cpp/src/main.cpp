@@ -131,11 +131,6 @@ int main(int argc, char **argv)
             std::cout << "  " << i + 1 << ". " << results[i].class_name << " (" << std::fixed
                       << std::setprecision(4) << results[i].score << ")" << std::endl;
         }
-
-        cv::Mat result_img = draw_classification(img, results);
-        std::string out_path = "eva02_result/" + it.path().filename().string();
-        cv::imwrite(out_path, result_img);
-        std::cout << "Result saved to: " << out_path << std::endl;
     }
 
     std::cout << "============================================================" << std::endl

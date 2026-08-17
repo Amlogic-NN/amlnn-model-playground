@@ -198,21 +198,3 @@ std::vector<ClassificationResult> postprocess(const std::vector<float *> &out_pt
 
     return results;
 }
-
-cv::Mat draw_classification(cv::Mat image, const std::vector<ClassificationResult> &results)
-{
-    cv::Mat drawn_image = image.clone();
-
-    for (size_t i = 0; i < results.size(); ++i)
-    {
-        std::string label = std::to_string(i + 1) + ". " + results[i].class_name + ": " + cv::format("%.4f", results[i].score);
-        int text_y = 30 + static_cast<int>(i) * 30;
-
-        cv::putText(drawn_image, label, cv::Point(10, text_y),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 0, 0), 3, cv::LINE_AA);
-        cv::putText(drawn_image, label, cv::Point(10, text_y),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
-    }
-
-    return drawn_image;
-}

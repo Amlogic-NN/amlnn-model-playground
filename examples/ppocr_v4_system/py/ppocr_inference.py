@@ -312,21 +312,21 @@ def draw_ocr_results(image, det_results):
 
 def main():
     parser = argparse.ArgumentParser(description="End-to-End PPOCR Demo")
-    parser.add_argument('--det-model', required=True, help='Path to det .adla model')
-    parser.add_argument('--rec-model', required=True, help='Path to rec .adla model')
+    parser.add_argument('--det', required=True, help='Path to det .adla model')
+    parser.add_argument('--rec', required=True, help='Path to rec .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
-    parser.add_argument('--dict-path', required=True, help='Path to PP-OCR dictionary file')
+    parser.add_argument('--dict', required=True, help='Path to PP-OCR dictionary file')
     args = parser.parse_args()
 
     print("PPOCR End-to-End Demo")
 
     # 1. Load Dictionary
-    char_dict = load_dictionary(args.dict_path)
+    char_dict = load_dictionary(args.dict)
 
     # 2. Initialize DET Network
     det_amlnn = AMLNN()
     det_amlnn.init_runtime(mode="native", enable_perf=True)
-    det_amlnn.load_model(path=args.det_model)
+    det_amlnn.load_model(path=args.det)
     det_tensor_info = det_amlnn.get_tensor_info()
     print(f"DET SDK Version: {det_amlnn.get_sdk_version()}")
     
@@ -338,7 +338,7 @@ def main():
     # 3. Initialize REC Network
     rec_amlnn = AMLNN()
     rec_amlnn.init_runtime(mode="native", enable_perf=True)
-    rec_amlnn.load_model(path=args.rec_model)
+    rec_amlnn.load_model(path=args.rec)
     rec_tensor_info = rec_amlnn.get_tensor_info()
     print(f"REC SDK Version: {rec_amlnn.get_sdk_version()}")
 

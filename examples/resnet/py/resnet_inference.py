@@ -73,7 +73,7 @@ def postprocess_topk(logits, labels, k=5):
 
 def main():
     parser = argparse.ArgumentParser(description="Resnet Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--labels', required=True, help='Path to labels.txt')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     args = parser.parse_args()
@@ -82,7 +82,7 @@ def main():
 
     amlnn.init_runtime(mode="native", enable_perf=True)
 
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
 

@@ -141,7 +141,7 @@ def main():
         description="Lite Transformer English-to-French Translation Demo",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--model-path", required=True, help="Path to Lite Transformer .adla model")
+    parser.add_argument("--adla", required=True, help="Path to Lite Transformer .adla model")
     parser.add_argument(
         "--assets-dir",
         required=True,
@@ -194,7 +194,7 @@ def main():
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
     tensor_info = amlnn.get_tensor_info()
 
     print(amlnn.get_sdk_version())
@@ -277,7 +277,7 @@ def main():
 
     print("=" * 60)
     print(amlnn.get_perf_info())
-    amlnn.perf_visualize()
+    # amlnn.perf_visualize()
     amlnn.uninit()
 
 

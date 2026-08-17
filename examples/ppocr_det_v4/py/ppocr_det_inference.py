@@ -240,15 +240,15 @@ def draw_detections(img, detections, save_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="PPOCR Det Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser = argparse.ArgumentParser(description="PPOCRv4 Det Demo")
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     args = parser.parse_args()
 
     # 1. Initialize Runtime and Load Model
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
     print(amlnn.get_sdk_version())
@@ -272,7 +272,7 @@ def main():
     tensor_type = int(tensor_attr["type"])
 
     # 4. Generate Output Directory
-    model_stem = Path(args.model_path).stem
+    model_stem = Path(args.adla).stem
     result_dir = f"{model_stem}_result"
     os.makedirs(result_dir, exist_ok=True)
 

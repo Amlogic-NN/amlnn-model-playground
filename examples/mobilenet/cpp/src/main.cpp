@@ -22,14 +22,13 @@
 #include <iomanip>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <opencv2/opencv.hpp>
 #include "postprocess.h"
 #include "nnsdk2.h"
 #include "model_loader.h"
 #include <filesystem>
 
-const int MODEL_INPUT_WIDTH = 224;
-const int MODEL_INPUT_HEIGHT = 224;
 const int TOP_K = 5;
 namespace fs = std::filesystem;
 
@@ -74,8 +73,22 @@ int main(int argc, char **argv)
                   << io_num.n_output << " outputs." << std::endl;
     }
 
-    // Query Input Attribute for Scale and Zero Point
+    // Query Input Attribute for Shape, Scale and Zero Point
     amlnn_tensor_attr input_attr = query_input_attr(context, 0);
+
+    std::vector<int> input_shape = get_tensor_shape(input_attr);
+
+    std::cout << "Input shape: [";
+    for (size_t i = 0; i < input_shape.size(); ++i)
+    {
+        std::cout << input_shape[i];
+        if (i + 1 < input_shape.size())
+            std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
+
+    int input_height = input_shape[0];
+    int input_width = input_shape[1];
 
     std::vector<amlnn_output> outData(1);
 
@@ -84,24 +97,51 @@ int main(int argc, char **argv)
         if (!it.is_regular_file())
             continue;
 
-        // 2. Load Image
-        cv::Mat img = cv::imread(it.path().string());
-        if (img.empty())
+        std::string extension = it.path().extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (extension != ".jpg" && extension != ".jpeg" && extension != ".png" &&
+            extension != ".bmp" && extension != ".txt" && extension != ".bin" &&
+            extension != ".qtxt")
             continue;
 
         std::cout << "============================================================" << std::endl;
         std::cout << "Processing image: \"" << it.path().filename().string() << "\"" << std::endl;
         std::cout << "============================================================" << std::endl;
 
-        // 3. Preprocess
-        auto [preprocessed, scale, pad] = preprocess(img, std::make_tuple(MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH));
-        cv::Mat quantized_img = quantize_input(preprocessed, input_attr);
+        std::vector<uint8_t> prepared_data;
+
+        if (extension == ".bin" || extension == ".qtxt")
+        {
+            prepared_data = load_direct_input_tensor(it.path().string(), input_attr);
+            if (prepared_data.empty())
+            {
+                std::cerr << "Failed to load direct input tensor." << std::endl;
+                continue;
+            }
+        }
+        else
+        {
+            // 2. Load Image
+            cv::Mat img = load_image(it.path().string(), input_height, input_width);
+            if (img.empty())
+                continue;
+
+            // 3. Preprocess
+            cv::Mat preprocessed = preprocess(img, std::make_tuple(input_height, input_width));
+            prepared_data = prepare_input_tensor(preprocessed, input_attr);
+
+            if (prepared_data.empty())
+            {
+                std::cerr << "Failed to prepare input tensor." << std::endl;
+                continue;
+            }
+        }
 
         // 4. Set input, run inference, and Get Outputs
-        size_t input_size = input_attr.n_elems * sizeof(int8_t);
-
         auto start_time = std::chrono::high_resolution_clock::now();
-        if (!run_network(context, quantized_img.data, input_size, outData))
+        if (!run_network(context, prepared_data.data(), prepared_data.size(), outData))
         {
             std::cerr << "Failed to run network" << std::endl;
             return -1;

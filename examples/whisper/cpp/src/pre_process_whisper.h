@@ -14,8 +14,17 @@
  * limitations under the License.
  */
 
-#include <vector>
-#include <string>
-#include <float.h>
+#ifndef PRE_PROCESS_WHISPER_H
+#define PRE_PROCESS_WHISPER_H
 
-std::vector<float> do_pre_process(std::string fname_inp);
+#include <string>
+#include <vector>
+
+std::vector<std::vector<float>> do_pre_process(
+    const std::string &fname_inp,
+    int n_mel,
+    int n_frames,
+    int overlap_seconds
+);
+
+#endif // PRE_PROCESS_WHISPER_H

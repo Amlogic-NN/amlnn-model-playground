@@ -61,7 +61,7 @@ def main():
     parser.add_argument("--onnx", required=True, help="Path to input .onnx model")
     parser.add_argument("--dataset-path", help="Path to quantization dataset")
     parser.add_argument("--target-platform", required=True, help="Platform ID, for example: 001, 002, 003")
-    parser.add_argument("--adla", default="../model", help="Output .adla file or directory (default: ../model)")
+    parser.add_argument("--output-dir", default="../model", help="Directory where the generated .adla model will be saved")
     args = parser.parse_args()
 
     model_path = Path(args.onnx).resolve()

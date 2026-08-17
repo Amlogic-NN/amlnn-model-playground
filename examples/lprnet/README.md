@@ -4,11 +4,12 @@ This example runs LPRNet with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python demo with ADLA model.
+3. Run the Python demo with the ADLA model.
 4. Run the C++ (Linux/Android) demo with the ADLA model.
-5. Check detection images/results.
+5. Check license plate recognition results.
 
-## Directory layout
+## Directory Layout
+
 ```bash
 examples/lprnet/
 ├── cpp/               # C++ demo and build scripts
@@ -18,6 +19,7 @@ examples/lprnet/
 ```
 
 ## License
+
 This example code is licensed under the Apache License 2.0. See the repository root [LICENSE](../../LICENSE) file for details.
 
 The LPRNet model used in this example is provided by a third party (originally from [https://github.com/sirius-ai/LPRNet_Pytorch/]) and is distributed under the Apache License 2.0. Please check and follow the license and usage terms from the original model source before redistribution or commercial use.
@@ -26,75 +28,92 @@ The model pre-processing and post-processing code in this example was partially 
 
 ## 1. Prepare The ONNX Model
 
-### Download onnx
+### Download ONNX
 
-Download the prepared onnx model and put it under `examples/lprnet/model/`:
+Download the prepared ONNX model:
 
-https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/LPRNet/lprnet.onnx
+### [Download LPRNet ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/LPRNet/lprnet.onnx)
 
+Place the downloaded model under:
 
-Place the downloaded `lprnet.onnx` under `examples/lprnet/model/`
-
-## 2. Model Conversion
-The model conversion is done using the export_adla.py script.
-```bash
-cd py
-Usage:   python export_adla.py --onnx ../model/model.onnx \
-                               --target-platform 005 \
-                               --adla ../model
+```text
+examples/lprnet/model/lprnet.onnx
 ```
 
-| Parameter         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--onnx`        | `.onnx` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
-| `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
-| `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
+## 2. Convert ONNX To ADLA
 
+Run the ADLA export script from `examples/lprnet/py`:
+
+```bash
+cd examples/lprnet/py
+python export_adla.py \
+  --onnx ../model/lprnet.onnx \
+  --target-platform 007 \
+  --output-dir ../model
+```
+
+| Parameter           | Description                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `--onnx`            | Path to the LPRNet `.onnx` model.                                                               |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md). |
+| `--output-dir`      | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`.   |
+
+Expected model path:
+
+```text
+examples/lprnet/model/lprnet_w8a16.adla
+```
 
 ## 3. Run Python Demo
 
-**Prerequisites:**
-- Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+### Prerequisites
 
-**Install dependencies:**
+* Python 3.10
+* Required packages: `numpy`, `opencv-python`, `amlnn`
+
+### Install Dependencies
+
 ```bash
 pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
-**Run on device:**
+### Run on Device
+
 ```bash
 python lprnet_inference.py \
-    --model-path ../model/model.adla \
+    --adla ../model/lprnet_w8a16.adla \
     --image-dir ../input
 ```
-Argument Descriptions:
-| Argument         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
-|` --image-dir`   | Directory containing test images |
 
-The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
+Argument Descriptions:
+
+| Argument      | Description                       |
+| ------------- | --------------------------------- |
+| `--adla`      | Path to the LPRNet `.adla` model. |
+| `--image-dir` | Directory containing test images. |
+
+The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the specified image directory, print the recognized license plate text, and save the visualization results to the model result directory.
 
 ## 4. Run C++ Demo
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+#### Prerequisites
 
-**1. Setup Environment:**
-Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+
+#### 1. Setup Environment
+
+Export the paths to your NDK and AMLNN so the build script can find the required toolchain and neural network dependencies.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
-Navigate to the C++ directory and run the build script.
+#### 2. Build
 
 ```bash
 cd examples/lprnet/cpp
@@ -106,14 +125,19 @@ cd examples/lprnet/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/lprnet_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-**Run:**
+* 64-bit: `build/android/arm64-v8a/lprnet_demo`
+* 32-bit: `build/android/armeabi-v7a/lprnet_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/lprnet_demo /data/local/tmp/
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/lprnet_demo /data/local/tmp/
 adb push ../model/lprnet_w8a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
@@ -121,29 +145,34 @@ adb push ../input/ /data/local/tmp/
 adb shell
 cd /data/local/tmp
 chmod +x lprnet_demo
-export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
+export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./lprnet_demo <model_path> <image_dir>
 ./lprnet_demo lprnet_w8a16.adla input/
 ```
 
-**Note:** Replace `lprnet_w8a16.adla` with your actual model file path.
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/lprnet_demo` and the corresponding 32-bit library path. Replace `lprnet_w8a16.adla` with your actual generated model filename.
 
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
-Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -155,9 +184,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
 cd examples/lprnet/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -165,45 +196,58 @@ cd examples/lprnet/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name, for example `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`, you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/lprnet_demo` (or `build/linux/32/lprnet_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/lprnet_demo`
+* 32-bit: `build/linux/32/lprnet_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory).
+
+##### 2. Setup Environment
+
 ```bash
-# Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
+##### 3. Build
+
+```bash
 cd examples/lprnet/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/lprnet_demo` (or `build/yocto/32/lprnet_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/lprnet_demo`
+* 32-bit: `build/yocto/32/lprnet_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/lprnet_demo /data/local/tmp/
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/lprnet_demo /data/local/tmp/
 adb push ../model/lprnet_w8a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
@@ -216,26 +260,41 @@ chmod +x lprnet_demo
 ./lprnet_demo lprnet_w8a16.adla input/
 ```
 
-**Note:** Replace `lprnet_w8a16.adla` with your actual model file name.
+> **Note:** Replace `lprnet_w8a16.adla` with your actual generated model filename. Adjust the executable path if using a 32-bit or Yocto build.
 
 ## 5. Results
 
-**Performance Feedback**
+### Performance Feedback
 
-By setting the loglevel to INFO, the program provides real-time performance metrics upon completion. The console log will display essential hardware and execution details, including:
-- Hardware Information: System and ADLA library versions.
-- Model Overview: Basic input/output configurations.
-- NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
+By setting the log level to `INFO`, the program provides runtime performance information after inference. The console output may include:
 
+* **Hardware Information:** System and ADLA library versions.
+* **Model Overview:** Input and output tensor configurations.
+* **NPU Metrics:** Inference latency and DRAM bandwidth usage.
 
-```bash
+### License Plate Recognition Output
+
+For each input image, the program performs license plate recognition, prints the recognized plate text, and saves the result visualization.
+
+Example:
+
+```text
 ============================================================
 Processing image: "plate_only.png"
 ============================================================
 Inference time: 0.843059 ms
     Recognized Plate: [京N93XQ3]
-    Image saved to:  lprnet_w8a16_result/plate_only_result.jpg
+    Image saved to: lprnet_w8a16_result/plate_only_result.jpg
 ============================================================
 ```
-![alt text](./input/plate_only.png)
 
+Example result path:
+
+```text
+lprnet_w8a16_result/
+└── plate_only_result.jpg
+```
+
+Example input:
+
+![LPRNet input](./input/plate_only.png)

@@ -310,7 +310,7 @@ def save_landmarks(path, results):
 
 def main():
     parser = argparse.ArgumentParser(description="BlazePose Landmark Demo")
-    parser.add_argument("--model-path", required=True, help="Path to .adla model")
+    parser.add_argument("--adla", required=True, help="Path to .adla model")
     parser.add_argument("--image-dir", required=True, help="Directory containing test images")
     parser.add_argument("--detections-dir", required=True, help="Directory containing *_det.txt files")
     parser.add_argument("--conf", type=float, default=0.5)
@@ -318,7 +318,7 @@ def main():
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
 
@@ -356,7 +356,7 @@ def main():
 
     print()
 
-    model_name = Path(args.model_path).stem
+    model_name = Path(args.adla).stem
     result_dir = f"{model_name}_result"
     os.makedirs(result_dir, exist_ok=True)
 
@@ -410,7 +410,7 @@ def main():
     print("=" * 60)
     print(amlnn.get_perf_info())
 
-    amlnn.perf_visualize()
+    # amlnn.perf_visualize()
     amlnn.uninit()
 
 

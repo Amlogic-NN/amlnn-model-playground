@@ -27,21 +27,25 @@ from amlnn.api import AMLNN
 MEAN = np.array([0, 0, 0], dtype=np.float32)
 STD  = np.array([255, 255, 255], dtype=np.float32)
 
-def snapshot_adla_files(search_dir):
-    return {path: path.stat().st_mtime for path in search_dir.rglob("*.adla")}
+
+def snapshot_adla_files(search_dirs):
+    files = {}
+
+    for search_dir in search_dirs:
+        if not search_dir.is_dir():
+            continue
+
+        for path in search_dir.rglob("*.adla"):
+            stat = path.stat()
+            files[path.resolve()] = (stat.st_mtime_ns, stat.st_size)
+
+    return files
 
 
-def find_updated_adla_files(search_dir, known_files):
-    current_files = snapshot_adla_files(search_dir)
-    updated_files = [
-        path for path, mtime in current_files.items()
-        if path not in known_files or mtime > known_files[path]
-    ]
-    return sorted(
-        updated_files,
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
+def find_updated_adla_files(search_dirs, known_files):
+    current_files = snapshot_adla_files(search_dirs)
+    updated_files = [path for path, state in current_files.items() if known_files.get(path) != state]
+    return sorted(updated_files, key=lambda path: current_files[path][0], reverse=True)
 
 
 def main():
@@ -49,11 +53,12 @@ def main():
     parser.add_argument("--onnx", required=True, help="Path to input .onnx model")
     parser.add_argument("--dataset-path", help="Path to quantization dataset")
     parser.add_argument("--target-platform", required=True, help="Platform ID, for example: 001, 002, 003")
-    parser.add_argument("--adla", default="../model", help="Output .adla file or directory (default: ../model)")
+    parser.add_argument("--output-dir", default="../model", help="Directory where the generated .adla model will be saved")
     args = parser.parse_args()
 
     model_path = Path(args.onnx).resolve()
     dataset_path = Path(args.dataset_path).resolve() if args.dataset_path else None
+    output_dir = Path(args.output_dir).resolve()
 
     if not model_path.is_file():
         raise FileNotFoundError(f"Model not found: {model_path}")
@@ -65,8 +70,7 @@ def main():
         if dataset_path.suffix.lower() != ".txt":
             raise ValueError(f"Dataset path must be a .txt file: {dataset_path}")
 
-    output_path = get_output_path(args.adla, model_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     search_dirs = {Path.cwd().resolve(), model_path.parent}
     known_adla_files = snapshot_adla_files(search_dirs)
@@ -100,14 +104,15 @@ def main():
         raise RuntimeError("export_adla did not create or update a .adla file")
 
     generated_path = updated_adla_files[0]
+    output_path = output_dir / generated_path.name
 
-    if generated_path != output_path.resolve():
+    if generated_path != output_path:
         shutil.copy2(generated_path, output_path)
 
     if not output_path.is_file():
         raise RuntimeError(f"Failed to save ADLA model: {output_path}")
 
-    print(f"saved: {output_path.resolve()}")
+    print(f"saved: {output_path}")
 
 
 if __name__ == "__main__":

@@ -46,49 +46,40 @@ def find_updated_adla_files(search_dirs, known_files):
     return sorted(updated_files, key=lambda path: current_files[path][0], reverse=True)
 
 
-def get_output_path(adla_arg, model_path):
-    requested_path = Path(adla_arg)
-
-    if requested_path.suffix.lower() == ".adla":
-        return requested_path
-
-    return requested_path / f"{model_path.stem}.adla"
-
-
 def main():
     parser = argparse.ArgumentParser(description="Export ONNX to ADLA")
     parser.add_argument("--text-onnx", required=True, help="Path to Text ONNX model")
-    parser.add_argument("--vision-onnx", required=True, help="Path to Vision ONNX model")
-    parser.add_argument("--text-dataset-path", help="Path to a `.txt` containing all the paths to the quantization images for the text model (Not needed only if you are using `FP16`, required otherwise.")
-    parser.add_argument("--vision-dataset-path", help="Path to a `.txt` containing all the paths to the quantization images for the vision model (Not needed only if you are using `FP16`, required otherwise.")
+    parser.add_argument("--image-onnx", required=True, help="Path to Image ONNX model")
+    parser.add_argument("--text-dataset-path", help="Path to a `.txt` containing all the paths to the quantization inputs for the text model")
+    parser.add_argument("--image-dataset-path", help="Path to a `.txt` containing all the paths to the quantization images for the image model")
     parser.add_argument("--target-platform", required=True, help="Platform ID, e.g. 001, 002, 003")
-    parser.add_argument("--adla", default="../model", help="Output directory for exported .adla models")
+    parser.add_argument("--output-dir", default="../model", help="Output directory for exported .adla models")
     args = parser.parse_args()
 
-    vision_model_path = Path(args.vision_onnx).resolve()
-    vision_dataset_path = Path(args.vision_dataset_path).resolve() if args.vision_dataset_path else None
+    output_dir = Path(args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not vision_model_path.is_file():
-        raise FileNotFoundError(f"Model not found: {vision_model_path}")
+    image_model_path = Path(args.image_onnx).resolve()
+    image_dataset_path = Path(args.image_dataset_path).resolve() if args.image_dataset_path else None
 
-    if vision_dataset_path is not None:
-        if not vision_dataset_path.is_file():
-            raise FileNotFoundError(f"Dataset file not found: {vision_dataset_path}")
+    if not image_model_path.is_file():
+        raise FileNotFoundError(f"Model not found: {image_model_path}")
 
-        if vision_dataset_path.suffix.lower() != ".txt":
-            raise ValueError(f"Dataset path must be a .txt file: {vision_dataset_path}")
+    if image_dataset_path is not None:
+        if not image_dataset_path.is_file():
+            raise FileNotFoundError(f"Dataset file not found: {image_dataset_path}")
 
-    vision_output_path = get_output_path(args.adla, vision_model_path)
-    vision_output_path.parent.mkdir(parents=True, exist_ok=True)
+        if image_dataset_path.suffix.lower() != ".txt":
+            raise ValueError(f"Dataset path must be a .txt file: {image_dataset_path}")
 
-    search_dirs = {Path.cwd().resolve(), vision_model_path.parent}
+    search_dirs = {Path.cwd().resolve(), image_model_path.parent}
     known_adla_files = snapshot_adla_files(search_dirs)
 
     amlnn = AMLNN()
     amlnn.load_onnx(
-        model=str(vision_model_path),
+        model=str(image_model_path),
         outputs=[
-            "image_embeds"  # <-- Vision embedding 1x512
+            "image_embeds"  # <-- Image embedding 1x512
         ]
     )
 
@@ -100,27 +91,28 @@ def main():
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}"
     )
 
-    if vision_dataset_path is None:
+    if image_dataset_path is None:
         amlnn.compile()
     else:
-        amlnn.compile(dataset=str(vision_dataset_path))
+        amlnn.compile(dataset=str(image_dataset_path))
 
     amlnn.export_adla()
     amlnn.uninit()
 
     updated_adla_files = find_updated_adla_files(search_dirs, known_adla_files)
     if not updated_adla_files:
-        raise RuntimeError("Vision export_adla did not create or update a .adla file")
+        raise RuntimeError("Image export_adla did not create or update a .adla file")
 
     generated_path = updated_adla_files[0]
+    image_output_path = output_dir / generated_path.name
 
-    if generated_path != vision_output_path.resolve():
-        shutil.copy2(generated_path, vision_output_path)
+    if generated_path != image_output_path:
+        shutil.copy2(generated_path, image_output_path)
 
-    if not vision_output_path.is_file():
-        raise RuntimeError(f"Failed to save ADLA model: {vision_output_path}")
+    if not image_output_path.is_file():
+        raise RuntimeError(f"Failed to save ADLA model: {image_output_path}")
 
-    print(f"saved: {vision_output_path.resolve()}")
+    print(f"saved: {image_output_path}")
 
     text_model_path = Path(args.text_onnx).resolve()
     text_dataset_path = Path(args.text_dataset_path).resolve() if args.text_dataset_path else None
@@ -137,9 +129,6 @@ def main():
 
     if not text_model_path.is_file():
         raise FileNotFoundError(f"Model not found: {text_model_path}")
-
-    text_output_path = get_output_path(args.adla, text_model_path)
-    text_output_path.parent.mkdir(parents=True, exist_ok=True)
 
     search_dirs = {Path.cwd().resolve(), text_model_path.parent}
     known_adla_files = snapshot_adla_files(search_dirs)
@@ -171,14 +160,15 @@ def main():
         raise RuntimeError("Text export_adla did not create or update a .adla file")
 
     generated_path = updated_adla_files[0]
+    text_output_path = output_dir / generated_path.name
 
-    if generated_path != text_output_path.resolve():
+    if generated_path != text_output_path:
         shutil.copy2(generated_path, text_output_path)
 
     if not text_output_path.is_file():
         raise RuntimeError(f"Failed to save ADLA model: {text_output_path}")
 
-    print(f"saved: {text_output_path.resolve()}")
+    print(f"saved: {text_output_path}")
 
 
 if __name__ == "__main__":

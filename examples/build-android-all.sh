@@ -80,10 +80,27 @@ else
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Demos to exclude (directory name under examples/)
+# ---------------------------------------------------------------------------
+EXCLUDE_DIRS=()
+
+is_excluded() {
+    local demo="$1"
+    local demo_dir="${demo%%/*}"
+    for excl in "${EXCLUDE_DIRS[@]}"; do
+        if [[ "$demo_dir" == "$excl" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 echo "============================================"
 echo "Building all Android examples"
 echo "NDK_PATH: ${ANDROID_NDK_PATH}"
 echo "TARGET_ABI: ${TARGET_ABI}"
+echo "EXCLUDED: ${EXCLUDE_DIRS[*]}"
 echo "============================================"
 
 # Dynamically discover all examples that have a build-android.sh
@@ -98,8 +115,17 @@ done
 
 FAILED=()
 SUCCEEDED=()
+SKIPPED=()
 
 for EXAMPLE in "${EXAMPLES[@]}"; do
+    # Skip excluded demos
+    if is_excluded "${EXAMPLE}"; then
+        SKIPPED+=("${EXAMPLE}")
+        echo ""
+        echo "[SKIP] ${EXAMPLE} (excluded)"
+        continue
+    fi
+
     EXAMPLE_DIR="${SCRIPT_DIR}/${EXAMPLE}"
     BUILD_SCRIPT="${EXAMPLE_DIR}/build-android.sh"
 
@@ -132,6 +158,12 @@ echo "Build Summary"
 echo "============================================"
 echo "Succeeded (${#SUCCEEDED[@]}):"
 for E in "${SUCCEEDED[@]}"; do echo "  - $E"; done
+
+if [ ${#SKIPPED[@]} -gt 0 ]; then
+    echo ""
+    echo "Skipped (${#SKIPPED[@]}):"
+    for E in "${SKIPPED[@]}"; do echo "  - $E"; done
+fi
 
 if [ ${#FAILED[@]} -gt 0 ]; then
     echo ""

@@ -39,6 +39,5 @@ std::vector<ClassificationResult> postprocess(const std::vector<float *> &out_pt
                                               const std::vector<std::vector<int>> &out_shapes,
                                               const std::vector<std::string> &class_names,
                                               int top_k);
-cv::Mat draw_classification(cv::Mat image, const std::vector<ClassificationResult> &results);
 
 #endif // POSTPROCESS_H

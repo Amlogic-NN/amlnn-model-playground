@@ -14,8 +14,17 @@
  * limitations under the License.
  */
 
-#include "pre_post_common.h"
+#ifndef POST_PROCESS_WHISPER_H
+#define POST_PROCESS_WHISPER_H
 
-whisper_vocab read_token_info(std::string token_path);
-int get_output_max_index(size_t id_shape, std::vector<float> buf_data);
-std::string do_post_process(int64_t output_id, whisper_vocab vocab);
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "whisper.h"
+
+whisper_vocab read_token_info(const std::string &token_path);
+std::string decode_tokens(const std::vector<int64_t> &token_ids, const whisper_vocab &vocab);
+std::string merge_transcriptions(const std::vector<std::string> &transcriptions);
+
+#endif // POST_PROCESS_WHISPER_H

@@ -139,14 +139,14 @@ def draw_detections(image, text, score):
 
 def main():
     parser = argparse.ArgumentParser(description="LPRNet (Chinese) Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing cropped license plates')
     args = parser.parse_args()
 
     # 1. Initialize Runtime and Load Model
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     print(amlnn.get_sdk_version())
 
@@ -168,7 +168,7 @@ def main():
         amlnn.uninit()
         return
 
-    model_stem = Path(args.model_path).stem
+    model_stem = Path(args.adla).stem
     result_dir = f"{model_stem}_result"
     os.makedirs(result_dir, exist_ok=True)
 

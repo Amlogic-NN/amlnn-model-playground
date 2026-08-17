@@ -19,7 +19,6 @@ import os
 import glob
 import argparse
 import cv2
-from pathlib import Path
 from amlnn.api import AMLNN
 
 MEAN = np.array([122.7709383, 116.7460125, 104.09373615], dtype=np.float32)
@@ -99,23 +98,9 @@ def postprocess(outputs, class_names, top_k=TOP_K):
 
     return results
 
-def draw_classification(img, results, save_path=None):
-    result_img = img.copy()
-
-    for rank, result in enumerate(results, 1):
-        label = f"{rank}. {result['class_name']}: {result['confidence']:.4f}"
-        y = 30 + (rank - 1) * 30
-        cv2.putText(result_img, label, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), thickness=3, lineType=cv2.LINE_AA)
-        cv2.putText(result_img, label, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), thickness=1, lineType=cv2.LINE_AA)
-
-    if save_path:
-        cv2.imwrite(save_path, result_img)
-
-    return result_img
-
 def main():
     parser = argparse.ArgumentParser(description="EVA-02 ADLA Image Classification Demo")
-    parser.add_argument("--model-path", required=True, help="Path to .adla model")
+    parser.add_argument("--adla", required=True, help="Path to .adla model")
     parser.add_argument("--image-dir", required=True, help="Directory containing test images")
     parser.add_argument("--labels", required=True, help="Path to class labels .txt file")
     args = parser.parse_args()
@@ -124,7 +109,7 @@ def main():
 
     amlnn.init_runtime(mode="native", enable_perf=True)
 
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
 
@@ -164,7 +149,7 @@ def main():
 
         try:
             # Preprocess input
-            input_tensor, original_img = preprocess(image_path, input_shape, s, zp, tensor_type)
+            input_tensor, _ = preprocess(image_path, input_shape, s, zp, tensor_type)
 
             # Run inference
             outputs = amlnn.inference(
@@ -178,15 +163,6 @@ def main():
             print(f"    Top {len(results)} results:")
             for rank, result in enumerate(results, 1):
                 print(f"      {rank}. {result['class_name']} ({result['confidence']:.4f})")
-
-            # Save result image
-            model_name = Path(args.model_path).stem
-            result_dir = f"{model_name}_result"
-            os.makedirs(result_dir, exist_ok=True)
-            img_name = Path(image_path).stem
-            save_path = os.path.join(result_dir, f"{img_name}_result.jpg")
-            draw_classification(original_img, results, str(save_path))
-            print(f"    Result saved to: {save_path}")
 
         except Exception as e:
             print(f"Error processing {os.path.basename(image_path)}: {e}")

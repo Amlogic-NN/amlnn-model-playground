@@ -14,114 +14,269 @@
  * limitations under the License.
  */
 
-#include "pre_post_common.h"
 #include "post_process_whisper.h"
 
-whisper_vocab read_token_info(std::string token_path)
-{
-    struct whisper_context ctx;
-    auto & vocab = ctx.vocab;
-    whisper_model_loader loader = {};
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <fstream>
+#include <sstream>
 
-    auto fin = std::ifstream(token_path, std::ios::binary);
+#include "pre_post_common.h"
+
+namespace
+{
+constexpr int MULTILINGUAL_VOCAB_SIZE = 51865;
+constexpr int TOKEN_EOT = 50257;
+constexpr int TOKEN_SOT = 50258;
+constexpr int TOKEN_TRANSLATE = 50358;
+constexpr int TOKEN_TRANSCRIBE = 50359;
+constexpr int TOKEN_SOLM = 50360;
+constexpr int TOKEN_PREV = 50361;
+constexpr int TOKEN_NOSP = 50362;
+constexpr int TOKEN_NOTIMESTAMPS = 50363;
+constexpr int TOKEN_TIMESTAMP_BEGIN = 50364;
+
+std::string trim_text(const std::string &text)
+{
+    const size_t first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+    {
+        return "";
+    }
+
+    const size_t last = text.find_last_not_of(" \t\r\n");
+    return text.substr(first, last - first + 1);
+}
+
+std::vector<std::string> split_words(const std::string &text)
+{
+    std::istringstream stream(text);
+    std::vector<std::string> words;
+    std::string word;
+
+    while (stream >> word)
+    {
+        words.push_back(word);
+    }
+
+    return words;
+}
+
+std::string normalize_word(const std::string &word)
+{
+    std::string normalized;
+
+    for (unsigned char character : word)
+    {
+        if (std::isalnum(character) || character == '\'')
+        {
+            normalized.push_back(static_cast<char>(std::tolower(character)));
+        }
+    }
+
+    return normalized;
+}
+
+std::string join_words(const std::vector<std::string> &words)
+{
+    std::string text;
+
+    for (const std::string &word : words)
+    {
+        if (!text.empty())
+        {
+            text.push_back(' ');
+        }
+
+        text += word;
+    }
+
+    return text;
+}
+}
+
+whisper_vocab read_token_info(const std::string &token_path)
+{
+    whisper_vocab vocab;
+    std::ifstream fin(token_path, std::ios::binary);
+
     if (!fin)
     {
-        fprintf(stderr, "%s : fail to open '%s'\n", __func__, token_path.c_str());
+        fprintf(stderr, "%s: failed to open '%s'\n", __func__, token_path.c_str());
+        return {};
     }
-    loader.context = &fin;
 
-    loader.read = [](void * ctx, void * output, size_t read_size) {
-        std::ifstream * fin = (std::ifstream*)ctx;
-        fin->read((char *)output, read_size);
-        return read_size;
-    };
+    int32_t stored_vocab_size = 0;
+    fin.read(reinterpret_cast<char *>(&stored_vocab_size), sizeof(stored_vocab_size));
 
-    loader.eof = [](void * ctx) {
-        std::ifstream * fin = (std::ifstream*)ctx;
-        return fin->eof();
-    };
+    if (!fin || stored_vocab_size <= 0)
+    {
+        fprintf(stderr, "%s: invalid tokenizer header in '%s'\n", __func__, token_path.c_str());
+        return {};
+    }
 
-    loader.close = [](void * ctx) {
-        std::ifstream * fin = (std::ifstream*)ctx;
-        fin->close();
-    };
+    if (stored_vocab_size < TOKEN_EOT)
+    {
+        fprintf(
+            stderr,
+            "%s: tokenizer contains %d base entries; multilingual Whisper requires at least %d\n",
+            __func__,
+            stored_vocab_size,
+            TOKEN_EOT
+        );
+        return {};
+    }
 
-    int32_t n_vocab = 0;
-    read_safe(&loader, n_vocab);
+    for (int32_t token_id = 0; token_id < stored_vocab_size; ++token_id)
+    {
+        uint32_t length = 0;
+        fin.read(reinterpret_cast<char *>(&length), sizeof(length));
 
-    std::string word;
-    std::vector<char> tmp;
-
-    tmp.reserve(128);
-
-    for (int i = 0; i < n_vocab; i++) {
-        uint32_t len;
-        read_safe(&loader, len);
-
-        if (len > 0 and i != 50256) {
-            tmp.resize(len);
-            loader.read(loader.context, &tmp[0], tmp.size()); // read to buffer
-            word.assign(tmp.data(), tmp.size());
-        } else {
-            word = "";
+        if (!fin)
+        {
+            fprintf(stderr, "%s: failed while reading token %d\n", __func__, token_id);
+            return {};
         }
 
-        vocab.token_to_id[word] = i;
-        vocab.id_to_token[i] = word;
-    }
-    fin.eof();
-    fin.close();
-    n_vocab = 50256;
+        std::string token(length, '\0');
 
-    if (n_vocab < 51863) {
-        // WHISPER_LOG_INFO("%s: adding %d extra tokens\n", __func__, model.hparams.n_vocab - n_vocab);
-        for (int i = n_vocab; i < 51863; i++) {
-            if (i > vocab.token_beg) {
-                word = "[_TT_" + std::to_string(i - vocab.token_beg) + "]";
-            } else if (i == vocab.token_eot) {
-                word = "<|endoftext|>";
-            } else if (i == vocab.token_sot) {
-                word = "<|startoftranscript|>";
-            } else if (i == vocab.token_translate) {
-                word = "<|translate|>";
-            } else if (i == vocab.token_transcribe) {
-                word = "<|transcribe|>";
-            } else if (i == vocab.token_solm) {
-                word = "[_SOLM_]";
-            } else if (i == vocab.token_prev) {
-                word = "[_PREV_]";
-            } else if (i == vocab.token_nosp) {
-                word = "[_NOSP_]";
-            } else if (i == vocab.token_not) {
-                word = "<|notimestamps|>";
-            } else if (i == vocab.token_beg) {
-                word = "[_BEG_]";
+        if (length > 0)
+        {
+            fin.read(token.data(), length);
+
+            if (!fin)
+            {
+                fprintf(stderr, "%s: failed while reading token %d data\n", __func__, token_id);
+                return {};
             }
-              else if (i == 50258) {
-                word= "<|en|>";
-            }
-              else if (i == 50259) {
-                word= "<|zh|>";
-            }
-              else if (i == 50263) {
-                word= "<|ko|>";
-            }
-              else {
-                word = "[_extra_token_" + std::to_string(i) + "]";
-            }
-            vocab.token_to_id[word] = i;
-            vocab.id_to_token[i] = word;
         }
+
+        vocab.token_to_id[token] = token_id;
+        vocab.id_to_token[token_id] = token;
     }
+
+    // The deployed model is the multilingual Whisper vocabulary.
+    vocab.n_vocab = MULTILINGUAL_VOCAB_SIZE;
+    vocab.token_eot = TOKEN_EOT;
+    vocab.token_sot = TOKEN_SOT;
+    vocab.token_translate = TOKEN_TRANSLATE;
+    vocab.token_transcribe = TOKEN_TRANSCRIBE;
+    vocab.token_solm = TOKEN_SOLM;
+    vocab.token_prev = TOKEN_PREV;
+    vocab.token_nosp = TOKEN_NOSP;
+    vocab.token_not = TOKEN_NOTIMESTAMPS;
+    vocab.token_beg = TOKEN_TIMESTAMP_BEGIN;
+
     return vocab;
 }
 
-std::string do_post_process(int64_t output_id, whisper_vocab vocab)
+std::string decode_tokens(const std::vector<int64_t> &token_ids, const whisper_vocab &vocab)
 {
-    // std::vector<whisper_token> prompt_init = {50258, 50259, 50359, 50363,2221,13,2326,388,391,307,264,50244,295,264,2808,5359,11,293,321,366,5404,281,2928,702,14943,13,50257};
+    std::string transcription;
 
-    std::string text;
-    text = vocab.id_to_token.at(output_id).c_str();
+    for (int64_t token_id : token_ids)
+    {
+        if (token_id < 0 || token_id >= vocab.token_eot)
+        {
+            continue;
+        }
 
-    return text;
+        const auto token = vocab.id_to_token.find(static_cast<int32_t>(token_id));
+        if (token != vocab.id_to_token.end())
+        {
+            transcription += token->second;
+        }
+    }
+
+    return trim_text(transcription);
+}
+
+std::string merge_transcriptions(const std::vector<std::string> &transcriptions)
+{
+    std::string combined;
+
+    for (const std::string &raw_transcription : transcriptions)
+    {
+        const std::string transcription = trim_text(raw_transcription);
+
+        if (transcription.empty())
+        {
+            continue;
+        }
+
+        if (combined.empty())
+        {
+            combined = transcription;
+            continue;
+        }
+
+        std::vector<std::string> previous_words = split_words(combined);
+        std::vector<std::string> current_words = split_words(transcription);
+        const size_t max_overlap = std::min<size_t>(
+            20,
+            std::min(previous_words.size(), current_words.size())
+        );
+
+        size_t matched_words = 0;
+
+        for (size_t count = max_overlap; count > 0; --count)
+        {
+            bool matches = true;
+
+            for (size_t index = 0; index < count; ++index)
+            {
+                const std::string previous_word = normalize_word(
+                    previous_words[previous_words.size() - count + index]
+                );
+                const std::string current_word = normalize_word(current_words[index]);
+
+                if (previous_word.empty() || previous_word != current_word)
+                {
+                    matches = false;
+                    break;
+                }
+            }
+
+            if (matches)
+            {
+                matched_words = count;
+                break;
+            }
+        }
+
+        if (matched_words > 0)
+        {
+            previous_words.insert(
+                previous_words.end(),
+                current_words.begin() + matched_words,
+                current_words.end()
+            );
+            combined = join_words(previous_words);
+            continue;
+        }
+
+        const std::string previous_last = normalize_word(previous_words.back());
+        const std::string current_first = normalize_word(current_words.front());
+
+        if (previous_last.size() >= 3 &&
+            current_first.compare(0, previous_last.size(), previous_last) == 0)
+        {
+            previous_words.pop_back();
+            previous_words.insert(previous_words.end(), current_words.begin(), current_words.end());
+            combined = join_words(previous_words);
+        }
+        else if (current_first.size() >= 3 &&
+                 previous_last.compare(0, current_first.size(), current_first) == 0)
+        {
+            previous_words.insert(previous_words.end(), current_words.begin() + 1, current_words.end());
+            combined = join_words(previous_words);
+        }
+        else
+        {
+            combined += " " + transcription;
+        }
+    }
+
+    return trim_text(combined);
 }

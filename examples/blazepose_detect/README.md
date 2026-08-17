@@ -35,14 +35,14 @@ The model pre-processing, post-processing, and conversion code in this example w
 
 Download the prepared TFLite model and put it under `examples/blazepose_detect/model/`:
 
-```text
-https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_detect/pose_detection_float32.tflite
-```
+
+### [Download Blazepose Detect TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_detect/pose_detection_float32.tflite)
+
 
 Expected path:
 
 ```text
-examples/retinaface/model/pose_detection_float32.tflite
+examples/blazepose_detect/model/pose_detection_float32.tflite
 ```
 
 ## 2. Convert ONNX/TFLite To ADLA
@@ -52,18 +52,26 @@ Run the ADLA export script from `examples/blazepose_detect/py`:
 ```bash
 cd examples/blazepose_detect/py
 python export_adla.py \
-  --model ../model/pose_detection_float32.tflite \
+  --tflite ../model/pose_detection_float32.tflite \
   --dataset-path ../../../resource/pose_dataset.txt \
   --target-platform 007 \
-  --adla ../model
+  --output-dir ../model
 ```
 
-| Parameter         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--model`        |   `.tflite` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images  |
-| `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
-| `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
+| Parameter           | Description                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `--tflite`          | Path to the input `.tflite` model.                                                                                                         |
+| `--dataset-path` | Path to a `.txt` file containing the input paths used for quantization calibration. Required for `w8a8` and `w8a16 (i16)`.[1] |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md).                                            |
+| `--output-dir`            | Directory where the generated `.adla` model will be saved. Optional; defaults to `../model`. |
+
+> **[1] Quantization dataset note**
+>
+> A calibration dataset is **not required** when using `activation_dtype="f16"`, such as `w8a16 (f16)` or `w16a16 (f16)`. Set this explicitly in the `amlnn.config()` call.
+>
+> If no dataset is provided, AMLNN generates random calibration data instead of failing, which can severely degrade model accuracy.
+>
+> `activation_dtype` does not apply to `w8a8`.
 
 After conversion, the expected model path is:
 
@@ -84,15 +92,18 @@ pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 **Run on device:**
 ```bash
 python blazepose_detect_inference.py \
-    --model-path ../model/pose_detection_float32_w8a8.adla \
-    --image-dir ../input
+    --adla ../model/pose_detection_float32_w8a8.adla \
+    --image-dir ../input \
+    --anchor ./anchors.npy \
+    --conf 0.5 \
+    --nms 0.3
 ```
 Argument Descriptions:
 | Argument         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
-| `--model-path` | The file path to the compiled detector model in `.adla` format. |
+| `--adla` | The file path to the compiled detector model in `.adla` format. |
 | `--image-dir` | The path to the directory containing the test images to be processed. |
-| `--anchor-path` | (Optional) The file path to the NumPy file containing the anchor box coordinates for the detector. Defaults to `"anchors.npy"`. |
+| `--anchor` | (Optional) The file path to the NumPy file containing the anchor box coordinates for the detector. Defaults to `./anchors.npy`. |
 | `--conf` | (Optional) The confidence score threshold filter; only detections with scores above this value are kept. Defaults to `0.5`. |
 | `--nms` | (Optional) The Intersection over Union (IoU) threshold used during Non-Maximum Suppression to filter out overlapping bounding boxes. Defaults to `0.3`. |
 
@@ -103,19 +114,23 @@ The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, 
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+#### Prerequisites
 
-**1. Setup Environment:**
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+
+#### 1. Setup Environment
+
 Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
+#### 2. Build
+
 Navigate to the C++ directory and run the build script.
 
 ```bash
@@ -128,14 +143,19 @@ cd examples/blazepose_detect/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/blazepose_detect_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-#### 2. Run
+* 64-bit: `build/android/arm64-v8a/blazepose_detect_demo`
+* 32-bit: `build/android/armeabi-v7a/blazepose_detect_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/blazepose_detect_demo /data/local/tmp/
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/blazepose_detect_demo /data/local/tmp/
 adb push ../model/pose_detection_float32_w8a8.adla /data/local/tmp/
 adb push ../input /data/local/tmp/
 
@@ -143,29 +163,36 @@ adb push ../input /data/local/tmp/
 adb shell
 cd /data/local/tmp
 chmod +x blazepose_detect_demo
-export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
+export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./blazepose_detect_demo <model_path> <image_dir>
 ./blazepose_detect_demo pose_detection_float32_w8a8.adla input/
 ```
 
-**Note:** Replace `pose_detection_float32_w8a8.adla` with your actual model file path.
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/blazepose_detect_demo` and the corresponding 32-bit library path. Replace `pose_detection_float32_w8a8.adla` with your actual model file name.
 
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -177,9 +204,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
 cd examples/blazepose_detect/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -187,45 +216,59 @@ cd examples/blazepose_detect/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/blazepose_detect_demo` (or `build/linux/32/blazepose_detect_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/blazepose_detect_demo`
+* 32-bit: `build/linux/32/blazepose_detect_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory).
+
+##### 2. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
+##### 3. Build
+
+```bash
 cd examples/blazepose_detect/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/blazepose_detect_demo` (or `build/yocto/32/blazepose_detect_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/blazepose_detect_demo`
+* 32-bit: `build/yocto/32/blazepose_detect_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/blazepose_detect_demo /data/local/tmp/
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/blazepose_detect_demo /data/local/tmp/
 adb push ../model/pose_detection_float32_w8a8.adla /data/local/tmp/
 adb push ../input /data/local/tmp/
 
@@ -237,26 +280,61 @@ chmod +x blazepose_detect_demo
 # Usage: ./blazepose_detect_demo <model_path> <image_dir>
 ./blazepose_detect_demo pose_detection_float32_w8a8.adla input/
 ```
-**Note:** Replace `pose_detection_float32_w8a8.adla` with your actual model file name.
+
+> **Note:** Replace `pose_detection_float32_w8a8.adla` with your actual model file name. Adjust the executable path if using a 32-bit or Yocto build.
+
 
 ## 5. Results
 
-**Performance Feedback**
+### Performance Feedback
 
-By setting the loglevel to INFO, the program provides real-time performance metrics upon completion. The console log will display essential hardware and execution details, including:
-- Hardware Information: System and ADLA library versions.
-- Model Overview: Basic input/output configurations.
-- NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
+By setting the log level to `INFO`, the program provides runtime performance information after inference. The console output may include:
 
-**Detection Output**
+* **Hardware Information:** System and ADLA library versions.
+* **Model Overview:** Input and output tensor configurations.
+* **NPU Metrics:** Inference latency and DRAM bandwidth usage.
 
-The program will convert the model, print the detection count, and inference time. The result image with bounding boxes will be saved to the specified output path (`model_result/test_image_result.jpg` by default). The pose landmark output will be a .txt file.
+### Detection Output
 
-You can pull the result image back to view it:
-```bash
-adb pull model_result/test_image_result.png
+For each input image, the demo produces two output files inside the model result directory:
+
+1. **Detection data**
+   Saved as:
+
+   ```text
+   <model_name>_result/<image_name>_det.txt
+   ```
+
+   The `.txt` file contains the detected BlazePose detector output values for each detected pose.
+
+2. **Visualization image**
+   Saved as:
+
+   ```text
+   <model_name>_result/<image_name>_result.jpg
+   ```
+
+   The result image contains the detected pose bounding boxes and visualization output.
+
+The console also prints the number of detected poses for each image.
+
+For example:
+
+```text
+pose_detection_float32_w8a8_result/
+├── test_image_det.txt
+└── test_image_result.jpg
 ```
-![alt text](./result.jpg) 
 
-**Note: This is output is used as input for blazepose landmark to detect the pose**
+You can pull the result files back from the device for inspection:
+
+```bash
+adb pull pose_detection_float32_w8a8_result/test_image_result.jpg
+adb pull pose_detection_float32_w8a8_result/test_image_det.txt
+```
+
+![BlazePose detection result](./result.jpg)
+
+> **Note:** The detector output is used as input to the BlazePose landmark model for subsequent pose landmark estimation.
+
 

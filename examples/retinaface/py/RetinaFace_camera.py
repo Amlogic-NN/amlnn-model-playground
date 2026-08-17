@@ -117,14 +117,14 @@ def preprocess(img_path, input_size=(640, 640), s=1.015221, zp=-12, tensor_type=
 
 def main():
     parser = argparse.ArgumentParser(description="RetinaFace AMLNN Camera Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     args = parser.parse_args()
 
     amlnn = AMLNN()
 
     amlnn.init_runtime(mode="native", enable_perf=True)
     
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
 
@@ -192,7 +192,7 @@ def main():
     cv2.destroyAllWindows()
 
     print(amlnn.get_perf_info())
-    amlnn.perf_visualize()
+    # amlnn.perf_visualize()
     amlnn.uninit()
 
 if __name__ == "__main__":

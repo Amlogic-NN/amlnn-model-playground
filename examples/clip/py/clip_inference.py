@@ -75,9 +75,9 @@ def preprocess_text(tokenizer, text, max_len):
     return encoding["input_ids"].astype(np.int64)
 
 
-def compute_image_embedding(vision_amlnn, image_path, input_shape, scale, zero_point, tensor_type):
+def compute_image_embedding(image_amlnn, image_path, input_shape, scale, zero_point, tensor_type):
     input_tensor = preprocess_image(image_path, input_shape, scale, zero_point, tensor_type)
-    outputs = vision_amlnn.inference(inputs=[input_tensor], inputs_data_format="NHWC", outputs_data_format="NHWC")
+    outputs = image_amlnn.inference(inputs=[input_tensor], inputs_data_format="NHWC", outputs_data_format="NHWC")
     features = np.asarray(outputs[0], dtype=np.float32).reshape(1, -1)
     return l2_normalize(features, axis=1)
 
@@ -108,55 +108,55 @@ def main():
         description="CLIP Image-Text Matching Demo",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("--vision-model", required=True, help="Path to vision .adla model")
-    parser.add_argument("--text-model", required=True, help="Path to text .adla model")
-    parser.add_argument("--tokenizer-dir", required=True, help="Path to CLIPTokenizer directory")
+    parser.add_argument("--image", required=True, help="Path to image .adla model")
+    parser.add_argument("--text", required=True, help="Path to text .adla model")
+    parser.add_argument("--tokenizer", required=True, help="Path to CLIPTokenizer directory")
     parser.add_argument("--image-dir", required=True, help="Directory containing test images")
     parser.add_argument(
-        "--texts",
+        "--prompts",
         nargs="+",
         required=True,
         help=(
-            "Text descriptions to compare against each image.\n"
-            "Separate descriptions with spaces and wrap multi-word descriptions in quotes.\n"
+            "Text prompts to compare against each image.\n"
+            "Separate prompts with spaces and wrap multi-word prompts in quotes.\n"
             "Example:\n"
-            '  --texts "a red handbag" "a blue jacket" "a red bus"'
+            '  --prompts "a red handbag" "a blue jacket" "a red bus"'
         )
     )
     parser.add_argument("--logit-scale", type=float, default=100.0, help="Logit scale factor")
     args = parser.parse_args()
 
-    print(f"Loading CLIPTokenizer from: {args.tokenizer_dir}")
-    tokenizer = CLIPTokenizer.from_pretrained(args.tokenizer_dir)
+    print(f"Loading CLIPTokenizer from: {args.tokenizer}")
+    tokenizer = CLIPTokenizer.from_pretrained(args.tokenizer)
 
-    vision_amlnn = AMLNN()
-    vision_amlnn.init_runtime(mode="native", enable_perf=True)
-    vision_amlnn.load_model(path=args.vision_model)
-    vision_tensor_info = vision_amlnn.get_tensor_info()
+    image_amlnn = AMLNN()
+    image_amlnn.init_runtime(mode="native", enable_perf=True)
+    image_amlnn.load_model(path=args.image)
+    image_tensor_info = image_amlnn.get_tensor_info()
 
     text_amlnn = AMLNN()
     text_amlnn.init_runtime(mode="native", enable_perf=True)
-    text_amlnn.load_model(path=args.text_model)
+    text_amlnn.load_model(path=args.text)
     text_tensor_info = text_amlnn.get_tensor_info()
 
-    print(vision_amlnn.get_sdk_version())
+    print(image_amlnn.get_sdk_version())
 
-    vision_attr = vision_tensor_info["inputs"][0]
-    vision_input_h = int(vision_attr["dims"][1])
-    vision_input_w = int(vision_attr["dims"][2])
-    vision_input_shape = (vision_input_h, vision_input_w)
-    vision_scale = float(vision_attr["scale"])
-    vision_zero_point = int(vision_attr["zp"])
-    vision_tensor_type = int(vision_attr["type"])
+    image_attr = image_tensor_info["inputs"][0]
+    image_input_h = int(image_attr["dims"][1])
+    image_input_w = int(image_attr["dims"][2])
+    image_input_shape = (image_input_h, image_input_w)
+    image_scale = float(image_attr["scale"])
+    image_zero_point = int(image_attr["zp"])
+    image_tensor_type = int(image_attr["type"])
 
     text_attr = text_tensor_info["inputs"][0]
     text_input_shape = tuple(int(value) for value in text_attr["dims"])
     if text_input_shape[-1] != MAX_TEXT_LENGTH:
         raise ValueError(f"CLIP text model expects sequence length {text_input_shape[-1]}, but MAX_TEXT_LENGTH is {MAX_TEXT_LENGTH}")
 
-    text_embeddings = compute_text_embeddings_batch(text_amlnn, tokenizer, args.texts, text_input_shape)
+    text_embeddings = compute_text_embeddings_batch(text_amlnn, tokenizer, args.prompts, text_input_shape)
     print(f"Text embeddings shape: {text_embeddings.shape}")
-    for text_idx, text in enumerate(args.texts):
+    for text_idx, text in enumerate(args.prompts):
         embedding = text_embeddings[text_idx]
         print(f"Text {text_idx}: '{text}', norm={np.linalg.norm(embedding):.6f}, min={embedding.min():.6f}, max={embedding.max():.6f}")
 
@@ -168,7 +168,7 @@ def main():
 
     if not image_files:
         print(f"No image files found in {args.image_dir}")
-        vision_amlnn.uninit()
+        image_amlnn.uninit()
         text_amlnn.uninit()
         return 0
 
@@ -183,26 +183,26 @@ def main():
         print("=" * 60)
 
         try:
-            image_embedding = compute_image_embedding(vision_amlnn, image_path, vision_input_shape, vision_scale, vision_zero_point, vision_tensor_type)
+            image_embedding = compute_image_embedding(image_amlnn, image_path, image_input_shape, image_scale, image_zero_point, image_tensor_type)
             similarities, logits, probabilities = compute_similarity(image_embedding, text_embeddings, args.logit_scale)
             sorted_indices = np.argsort(probabilities)[::-1]
 
             print(f"Image embedding shape: {image_embedding.shape}")
             for rank, text_idx in enumerate(sorted_indices, 1):
-                print(f"  {rank}. probability={probabilities[text_idx]:.6f}, similarity={similarities[text_idx]:.6f}, text='{args.texts[text_idx]}'")
+                print(f"  {rank}. probability={probabilities[text_idx]:.6f}, similarity={similarities[text_idx]:.6f}, text='{args.prompts[text_idx]}'")
         except Exception as error:
             print(f"Error processing {os.path.basename(image_path)}: {error}")
 
         print()
 
     print("=" * 60)
-    print("Vision model performance:")
-    print(vision_amlnn.get_perf_info())
+    print("Image model performance:")
+    print(image_amlnn.get_perf_info())
     print("Text model performance:")
     print(text_amlnn.get_perf_info())
-    vision_amlnn.perf_visualize()
-    text_amlnn.perf_visualize()
-    vision_amlnn.uninit()
+    # image_amlnn.perf_visualize()
+    # text_amlnn.perf_visualize()
+    image_amlnn.uninit()
     text_amlnn.uninit()
     return 0
 

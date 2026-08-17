@@ -4,9 +4,9 @@ This example runs RetinaFace face detection with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python demo with ADLA model.
+3. Run the Python demo with the ADLA model.
 4. Run the C++ (Linux/Android) demo with the ADLA model.
-5. Check detection images/results.
+5. Check face detection results.
 
 ## Directory Layout
 
@@ -43,8 +43,13 @@ Install or clone the ModelScope model package:
 git clone https://www.modelscope.cn/iic/cv_resnet50_face-detection_retinaface.git
 ```
 
-Place `pytorch_model.pt` and `configuration.json` where `py/convert_to_onnx.py` can load it. It is recommended to place both files under `examples/retinaface/py/
-`. Then run:
+Place `pytorch_model.pt` and `configuration.json` where `py/convert_to_onnx.py` can load them. It is recommended to place both files under:
+
+```text
+examples/retinaface/py/
+```
+
+Then run:
 
 ```bash
 cd examples/retinaface/py
@@ -53,15 +58,19 @@ python convert_to_onnx.py
 
 The script writes `retinaface_resnet50.onnx` by default.
 
-### Option B: Download ONNX
-
-Download the prepared ONNX model and put it under `examples/retinaface/model/`:
+Place the exported model under:
 
 ```text
-https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/retinaface/retinaface_resnet50.onnx
+examples/retinaface/model/retinaface_resnet50.onnx
 ```
 
-Expected path:
+### Option B: Download ONNX
+
+Download the prepared ONNX model:
+
+### [Download RetinaFace ResNet-50 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/retinaface/retinaface_resnet50.onnx)
+
+Place the downloaded model under:
 
 ```text
 examples/retinaface/model/retinaface_resnet50.onnx
@@ -77,45 +86,51 @@ python export_adla.py \
   --onnx ../model/retinaface_resnet50.onnx \
   --dataset-path ../../../resource/detection_dataset.txt \
   --target-platform 007 \
-  --adla ../model/RetinaFace_int8_A311D2.adla
+  --output-dir ../model
 ```
 
-Arguments:
+| Parameter           | Description                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `--onnx`            | Path to the RetinaFace `.onnx` model.                                                                                                    |
+| `--dataset-path`    | (Optional) Path to a `.txt` file containing the input paths used for quantization calibration. Required for `w8a8` and `w8a16 (i16)`.[1] |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md).                                          |
+| `--output-dir`      | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`.                                            |
 
-| Argument | Description |
-| --- | --- |
-| `--onnx` | Path to the RetinaFace ONNX model. |
-| `--dataset-path` | Quantization dataset path. |
-| `--target-platform` | Platform ID. A311D2: 003. S905X5: 005. C302X2: 006. A311Y3: 007. |
-| `--adla` | Optional output ADLA path. |
+> **[1] Quantization dataset note**
+>
+> A calibration dataset is **not required** when using `activation_dtype="f16"`, such as `w8a16 (f16)` or `w16a16 (f16)`. Set this explicitly in the `amlnn.config()` call.
+>
+> If no dataset is provided, AMLNN generates random calibration data instead of failing, which can severely degrade model accuracy.
+>
+> `activation_dtype` does not apply to `w8a8`. The current RetinaFace model uses `w8a8` and therefore requires a calibration dataset for proper quantization.
 
-After conversion, the expected model path is:
+After conversion, the generated filename from AMLNN is preserved. For the `retinaface_resnet50.onnx` model with the current `w8a8` configuration, the expected model path is:
 
 ```text
-examples/retinaface/model/RetinaFace_int8_A311D2.adla
+examples/retinaface/model/retinaface_resnet50_w8a8.adla
 ```
 
 ## 3. Run Python Demo
 
 ### Prerequisites
 
-- Python 3.10
-- `numpy`
-- `opencv-python`
-- AMLNN Python wheel for the target device
+* Python 3.10
+* Required packages: `numpy`, `opencv-python`, `amlnn`
 
-Install dependencies on the target device:
+### Install Dependencies
 
 ```bash
 pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
+
+### Run on Device
 
 Run image inference:
 
 ```bash
 cd examples/retinaface/py
 python RetinaFace.py \
-  --model-path ../model/RetinaFace_int8_A311D2.adla \
+  --adla ../model/retinaface_resnet50_w8a8.adla \
   --image-dir ../input
 ```
 
@@ -124,35 +139,39 @@ Run camera inference:
 ```bash
 cd examples/retinaface/py
 python RetinaFace_camera.py \
-  --model-path ../model/RetinaFace_int8_A311D2.adla
+  --adla ../model/retinaface_resnet50_w8a8.adla
 ```
 
-Python demo arguments:
+Argument Descriptions:
 
-| Argument | Description |
-| --- | --- |
-| `--model-path` | Path to the ADLA model. |
-| `--image-dir` | Directory containing test images. Used by `RetinaFace.py`. |
+| Argument       | Description                                                |
+| -------------- | ---------------------------------------------------------- |
+| `--adla` | Path to the compiled RetinaFace model in `.adla` format.   |
+| `--image-dir`  | Directory containing test images. Used by `RetinaFace.py`. |
 
-The image demo processes `.jpg`, `.jpeg`, `.png`, and `.bmp` files, then saves results to `{model_name}_result`.
+The image demo automatically processes all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the specified image directory and saves the detection results to a `{model_name}_result` folder.
 
 ## 4. Run C++ Demo
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+#### Prerequisites
 
-**1. Setup Environment:**
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+
+#### 1. Setup Environment
+
 Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
+#### 2. Build
+
 Navigate to the C++ directory and run the build script.
 
 ```bash
@@ -165,47 +184,56 @@ cd examples/retinaface/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/retinaface_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-### Run On Device
+* 64-bit: `build/android/arm64-v8a/retinaface_demo`
+* 32-bit: `build/android/armeabi-v7a/retinaface_demo`
 
-Push files:
+#### 3. Example Run
 
-```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/retinaface_demo /data/local/tmp/
-adb push ../model/RetinaFace_int8_A311D2.adla /data/local/tmp/
-adb push ../input /data/local/tmp/retinaface_input
-```
-
-Run:
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/retinaface_demo /data/local/tmp/
+adb push ../model/retinaface_resnet50_w8a8.adla /data/local/tmp/
+adb push ../input/ /data/local/tmp/retinaface_input
+
+# Run on device
 adb shell
 cd /data/local/tmp
 chmod +x retinaface_demo
 export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./retinaface_demo <model.adla> <image_dir>
-./retinaface_demo RetinaFace_int8_A311D2.adla ./retinaface_input
+./retinaface_demo retinaface_resnet50_w8a8.adla ./retinaface_input
 ```
 
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/retinaface_demo` and the corresponding 32-bit library path. Replace `retinaface_resnet50_w8a8.adla` with your actual model file name.
+
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -217,9 +245,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
 cd examples/retinaface/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -227,74 +257,93 @@ cd examples/retinaface/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name, for example `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`, you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/retinaface_demo` (or `build/linux/32/retinaface_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/retinaface_demo`
+* 32-bit: `build/linux/32/retinaface_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+
+##### 2. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
+##### 3. Build
+
+```bash
 cd examples/retinaface/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/retinaface_demo` (or `build/yocto/32/retinaface_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/retinaface_demo`
+* 32-bit: `build/yocto/32/retinaface_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/retinaface_demo /data/local/tmp/
-adb push ../model/RetinaFace_int8_A311D2.adla /data/local/tmp/
-adb push ../input /data/local/tmp/retinaface_input
-```
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/retinaface_demo /data/local/tmp/
+adb push ../model/retinaface_resnet50_w8a8.adla /data/local/tmp/
+adb push ../input/ /data/local/tmp/retinaface_input
 
-Run:
-
-```bash
+# Run on device
 adb shell
 cd /data/local/tmp
 chmod +x retinaface_demo
 
 # Usage: ./retinaface_demo <model.adla> <image_dir>
-./retinaface_demo RetinaFace_int8_A311D2.adla ./retinaface_input
+./retinaface_demo retinaface_resnet50_w8a8.adla ./retinaface_input
 ```
-**Note:** Replace `.adla` with your actual model file name.
+
+> **Note:** Replace `retinaface_resnet50_w8a8.adla` with your actual model file name. Adjust the executable path if using a 32-bit or Yocto build.
 
 ## 5. Results
 
 ### Detection Output
 
-The demos print the detection count. Output images include face bounding boxes and five landmarks for eyes, nose, and mouth corners.
+For each input image, the demos perform face detection and print the detection count. The output images contain face bounding boxes and five facial landmarks corresponding to the eyes, nose, and mouth corners.
 
-Pull the Python result folder from the device:
+The Python image demo saves results inside the model result directory.
+
+For the current model:
+
+```text
+retinaface_resnet50_w8a8_result/
+```
+
+You can pull the Python result folder back from the device for inspection:
 
 ```bash
-adb pull /data/local/tmp/RetinaFace_int8_A311D2_result
+adb pull /data/local/tmp/retinaface_resnet50_w8a8_result
 ```
 
 Example result:
 
 ![alt text](result.png)
-

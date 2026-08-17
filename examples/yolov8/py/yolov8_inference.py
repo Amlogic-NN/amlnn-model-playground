@@ -63,10 +63,87 @@ def letterbox(img, new_shape, color=(114, 114, 114)):
 
     return img, scale, (left, top)
 
+def load_image(img_path, image_shape=None):
+    suffix = Path(img_path).suffix.lower()
+
+    if suffix in (".jpg", ".jpeg", ".png", ".bmp"):
+        image = cv2.imread(str(img_path))
+        if image is None:
+            raise ValueError(f"can't read image: {img_path}")
+        return image
+
+    if suffix == ".txt":
+        if image_shape is None:
+            raise ValueError("image_shape is required for headerless .txt inputs")
+
+        values = np.fromstring(Path(img_path).read_text(), sep=" ", dtype=np.int32)
+        height, width = image_shape
+        expected_size = height * width * 3
+
+        if values.size != expected_size:
+            raise ValueError(
+                f"invalid .txt image data size: expected {expected_size} values for "
+                f"{height}x{width}x3, got {values.size}"
+            )
+        if np.any((values < 0) | (values > 255)):
+            raise ValueError(f".txt image pixel values must be in [0, 255]: {img_path}")
+
+        return values.astype(np.uint8).reshape(height, width, 3)
+
+    raise ValueError(f"unsupported image input file: {img_path}")
+
+def get_input_dtype(tensor_type):
+    if tensor_type == 0:
+        return np.float32
+    if tensor_type == 2:
+        return np.int8
+    if tensor_type == 3:
+        return np.uint8
+    if tensor_type == 4:
+        return np.int16
+    raise ValueError(f"Unsupported direct input tensor type: {tensor_type}")
+
+def load_quantized_input(input_path, input_shape, tensor_type):
+    suffix = Path(input_path).suffix.lower()
+    dtype = get_input_dtype(tensor_type)
+    expected_size = int(np.prod(input_shape))
+
+    if suffix == ".bin":
+        values = np.fromfile(input_path, dtype=dtype)
+    elif suffix == ".qtxt":
+        value_dtype = np.float32 if tensor_type == 0 else np.int64
+        values = np.fromstring(Path(input_path).read_text(), sep=" ", dtype=value_dtype)
+
+        if tensor_type == 2 and np.any((values < -128) | (values > 127)):
+            raise ValueError(f".qtxt int8 values must be in [-128, 127]: {input_path}")
+        if tensor_type == 3 and np.any((values < 0) | (values > 255)):
+            raise ValueError(f".qtxt uint8 values must be in [0, 255]: {input_path}")
+        if tensor_type == 4 and np.any((values < -32768) | (values > 32767)):
+            raise ValueError(f".qtxt int16 values must be in [-32768, 32767]: {input_path}")
+
+        values = values.astype(dtype)
+    else:
+        raise ValueError(f"unsupported quantized input file: {input_path}")
+
+    if values.size != expected_size:
+        raise ValueError(
+            f"invalid {suffix} input size: expected {expected_size} values for "
+            f"model input {input_shape}, got {values.size}"
+        )
+
+    return values.reshape(input_shape)
+
+def reconstruct_model_input_image(input_tensor, s, zp, tensor_type):
+    if tensor_type == 0:
+        normalized_rgb = input_tensor[0].astype(np.float32)
+    else:
+        normalized_rgb = (input_tensor[0].astype(np.float32) - zp) * s
+
+    rgb_img = np.clip(normalized_rgb * 255.0, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(rgb_img, cv2.COLOR_RGB2BGR)
+
 def preprocess(img_path, new_shape, s, zp, tensor_type):
-    original_img = cv2.imread(str(img_path))
-    if original_img is None:
-        raise ValueError(f"can't read image: {img_path}")
+    original_img = load_image(img_path, new_shape)
 
     # 1. Resize and pad
     processed_img, scale, pad = letterbox(original_img, new_shape)
@@ -305,7 +382,7 @@ def draw_detections(img, detections, save_path=None, in_place=False):
 
 def main():
     parser = argparse.ArgumentParser(description="Yolov8 Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     parser.add_argument("--conf", type=float, default=0.25)
     parser.add_argument("--nms", type=float, default=0.4)
@@ -315,7 +392,7 @@ def main():
 
     amlnn.init_runtime(mode="native", enable_perf=True)
 
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
 
@@ -324,7 +401,7 @@ def main():
 
     print(amlnn.get_sdk_version())
 
-    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
+    image_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.txt", "*.bin", "*.qtxt"]
     image_files = []
     for ext in image_extensions:
         image_files.extend(glob.glob(os.path.join(args.image_dir, ext)))
@@ -354,8 +431,17 @@ def main():
         print(f"=" * 60)
 
         try:
-            # Preprocess input
-            input_tensor, original_img, scale, pad = preprocess(image_path, input_shape, s, zp, tensor_type)
+            suffix = Path(image_path).suffix.lower()
+
+            # Preprocess image inputs; .bin and .qtxt are already quantized model inputs.
+            if suffix in (".bin", ".qtxt"):
+                model_input_shape = (1, input_h, input_w, 3)
+                input_tensor = load_quantized_input(image_path, model_input_shape, tensor_type)
+                original_img = reconstruct_model_input_image(input_tensor, s, zp, tensor_type)
+                scale = 1.0
+                pad = (0, 0)
+            else:
+                input_tensor, original_img, scale, pad = preprocess(image_path, input_shape, s, zp, tensor_type)
 
             # Run inference
             outputs = amlnn.inference(
@@ -374,7 +460,7 @@ def main():
                 print("    No objects detected")
 
             # Save result image
-            model_name = Path(args.model_path).stem
+            model_name = Path(args.adla).stem
             result_dir = f"{model_name}_result"
             os.makedirs(result_dir, exist_ok=True)
             img_name = Path(image_path).stem
@@ -387,6 +473,7 @@ def main():
 
         print()
     print(f"=" * 60)
+
     print(amlnn.get_perf_info())
 
     # Release resources

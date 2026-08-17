@@ -95,14 +95,14 @@ def draw_segmentation(img, pred_mask, save_path, alpha):
 
 def main():
     parser = argparse.ArgumentParser(description="PP-LiteSeg Demo")
-    parser.add_argument('--model-path', required=True, help='Path to .adla model')
+    parser.add_argument('--adla', required=True, help='Path to .adla model')
     parser.add_argument('--image-dir', required=True, help='Directory containing test images')
     parser.add_argument('--mask-alpha', type=float, default=0.5)
     args = parser.parse_args()
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     tensor_info = amlnn.get_tensor_info()
     print(f"SDK Version: {amlnn.get_sdk_version()}")
@@ -148,7 +148,7 @@ def main():
             pred_mask = postprocess(outputs, original_img.shape)
 
             # 4. Save Paths
-            model_name = Path(args.model_path).stem
+            model_name = Path(args.adla).stem
             result_dir = f"{model_name}_result"
             os.makedirs(result_dir, exist_ok=True)
             img_name = Path(image_path).stem

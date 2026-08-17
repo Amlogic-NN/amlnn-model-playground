@@ -15,6 +15,7 @@
  */
 
 #include "whisper.h"
+#include "whisper_assets.h"
 
 #include <atomic>
 #include <algorithm>
@@ -98,6 +99,13 @@ struct whisper_context {
 
     whisper_state * state = nullptr;
 };
+
+static std::string whisper_mel_filter_path;
+
+void set_whisper_mel_filter_path(const std::string &path)
+{
+    whisper_mel_filter_path = path;
+}
 
 
 #define SIN_COS_N_COUNT WHISPER_N_FFT
@@ -296,15 +304,29 @@ static bool log_mel_spectrogram(
     // ref: https://github.com/openai/whisper/blob/main/whisper/audio.py#L147
     fill_sin_cos_table();
 
-    // auto & filters = filters;
+    if (whisper_mel_filter_path.empty())
+    {
+        fprintf(stderr, "%s : mel filter path is not set\n", __func__);
+        return false;
+    }
+
     filters.data.resize(filters.n_mel*filters.n_fft);
-    auto fin = std::ifstream("./data_bin/data.bin", std::ios::binary);
+    auto fin = std::ifstream(whisper_mel_filter_path, std::ios::binary);
     if (!fin)
     {
-        fprintf(stderr, "%s : fail to open '%s'\n", __func__, "./data_bin/data.bin");
+        fprintf(stderr, "%s : fail to open '%s'\n", __func__, whisper_mel_filter_path.c_str());
+        return false;
     }
-    fin.read((char *)filters.data.data(), filters.data.size()*sizeof(float));
-    fin.eof();
+
+    const std::streamsize expected_size = filters.data.size()*sizeof(float);
+    fin.read((char *)filters.data.data(), expected_size);
+
+    if (fin.gcount() != expected_size)
+    {
+        fprintf(stderr, "%s : invalid mel filter file size for '%s'\n", __func__, whisper_mel_filter_path.c_str());
+        return false;
+    }
+
     fin.close();
 
 

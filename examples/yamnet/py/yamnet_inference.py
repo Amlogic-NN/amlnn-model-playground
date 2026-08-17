@@ -71,8 +71,8 @@ def prepare_tensor(frame: np.ndarray):
     return input_tensor
 
 def main():
-    parser = argparse.ArgumentParser(description="YAMNet NPU Audio Classification (FP16)")
-    parser.add_argument('--model-path', required=True, help='Path to model')
+    parser = argparse.ArgumentParser(description="YAMNet Audio Classification")
+    parser.add_argument('--adla', required=True, help='Path to .adla yamnet model')
     parser.add_argument('--audio-dir', required=True, help='Directory containing test audio')
     parser.add_argument('--labels', required=True, help='Path to yamnet_class_map.csv')
     args = parser.parse_args()
@@ -81,7 +81,7 @@ def main():
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native")
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
 
     audio_files = []
     for ext in ['*.wav', '*.mp3', '*.flac', '*.ogg']:

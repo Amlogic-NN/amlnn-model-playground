@@ -4,13 +4,14 @@ This example runs Detr with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python demo with ADLA model.
+3. Run the Python demo with the ADLA model.
 4. Run the C++ (Linux/Android) demo with the ADLA model.
 5. Check detection images/results.
 
-## Directory layout
+## Directory Layout
+
 ```bash
-examples/detr/
+examples/DETR/
 ├── cpp/               # C++ demo and build scripts
 ├── input/             # Input images for demo
 ├── model/             # Put ONNX and ADLA models here
@@ -28,94 +29,116 @@ The converted and quantized DETR model used by this example is distributed from 
 
 > Copyright 2020 - present, Facebook, Inc.
 >
-> Licensed under the Apache License, Version 2.0 (the "License");  
-> you may not use this file except in compliance with the License.  
+> Licensed under the Apache License, Version 2.0 (the "License");
+> you may not use this file except in compliance with the License.
 > You may obtain a copy of the License at
 >
->     http://www.apache.org/licenses/LICENSE-2.0
+> ```
+> http://www.apache.org/licenses/LICENSE-2.0
+> ```
 >
-> Unless required by applicable law or agreed to in writing, software  
-> distributed under the License is distributed on an "AS IS" BASIS,  
-> WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
-> See the License for the specific language governing permissions and  
+> Unless required by applicable law or agreed to in writing, software
+> distributed under the License is distributed on an "AS IS" BASIS,
+> WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+> See the License for the specific language governing permissions and
 > limitations under the License.
 
 The model preprocessing and postprocessing code in this example was partially generated with AI assistance and subsequently reviewed and adapted for this project. If any part is inadvertently similar to existing work and causes concern, please contact us, and we will remove or adjust it promptly.
 
 ## 1. Prepare The ONNX Model
 
-### Download onnx
+### Download ONNX
 
-Download the prepared onnx model and put it under `examples/detr/model/`:
+Download the prepared ONNX model and put it under `examples/DETR/model/`:
 
-[Download DETR ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/detr/detr.onnx)
+### [Download DETR ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/detr/detr.onnx)
 
+Expected path:
 
-Place the downloaded `detr.onnx` under `examples/detr/model/`
-
-## 2. Model Conversion
-The model conversion is done using the export_adla.py script.
-```bash
-cd py
-Usage:   python export_adla.py --onnx ../model/detr.onnx \
-                               --target-platform 007
+```text
+examples/DETR/model/detr.onnx
 ```
 
-| Parameter         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--onnx`        | `.onnx` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images (Not needed only if you are using `FP16`, required otherwise. Refer to the [python](py/export_adla.py) implementation for more information)  |
-| `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
-| `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
+## 2. Convert ONNX To ADLA
 
+Run the ADLA export script from `examples/DETR/py`:
+
+```bash
+cd examples/DETR/py
+python export_adla.py \
+  --onnx ../model/detr.onnx \
+  --target-platform 007 \
+  --output-dir ../model
+```
+
+| Parameter           | Description                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `--onnx`            | Path to the input `.onnx` model.                                                                |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md). |
+| `--output-dir`      | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`.   |
+
+After conversion, the generated AMLNN filename is preserved. With the current `w16a16` configuration, the expected model path is:
+
+```text
+examples/DETR/model/detr_w16a16.adla
+```
 
 ## 3. Run Python Demo
 
-**Prerequisites:**
-- Python 3.10
-- Required packages: `amlnn`
+### Prerequisites
 
-**Install dependencies:**
+* Python 3.10
+* Required packages: `amlnn`
+
+### Install Dependencies
+
 ```bash
 pip install amlnn_edge_toolkit_lite-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
-**Run on device:**
+### Run on Device
+
 ```bash
 python detr_inference.py \
-    --model-path ../model/detr.adla \
+    --adla ../model/detr_w16a16.adla \
     --image-dir ../input
 ```
-Argument Descriptions:
-| Argument         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
-|` --image-dir`   | Directory containing test images |
-| `--conf` | (Optional) Sets the confidence threshold, defaults to 0.5 |
 
-The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
+Argument Descriptions:
+
+| Argument       | Description                                                                         |
+| -------------- | ----------------------------------------------------------------------------------- |
+| `--adla` | Path to the compiled DETR model in `.adla` format.                                  |
+| `--image-dir`  | Directory containing test images.                                                   |
+| `--conf`       | (Optional) Confidence score threshold used to filter detections. Defaults to `0.5`. |
+
+The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the specified image directory and save results to a `{model_name}_result` folder.
 
 ## 4. Run C++ Demo
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+#### Prerequisites
 
-**1. Setup Environment:**
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV for Android located in the `dependency/opencv/` folder.
+
+#### 1. Setup Environment
+
 Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
+#### 2. Build
+
 Navigate to the C++ directory and run the build script.
 
 ```bash
-cd examples/detr/cpp
+cd examples/DETR/cpp
 
 # Build for 64-bit (arm64-v8a) - Default
 ./build-android.sh
@@ -124,44 +147,56 @@ cd examples/detr/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/detr_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-**Run:**
+* 64-bit: `build/android/arm64-v8a/detr_demo`
+* 32-bit: `build/android/armeabi-v7a/detr_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/detr_demo /data/local/tmp/
-adb push ../model/detr.adla /data/local/tmp/
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/detr_demo /data/local/tmp/
+adb push ../model/detr_w16a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
 # Run on device
 adb shell
 cd /data/local/tmp
 chmod +x detr_demo
-export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
+export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./detr_demo <model_path> <image_dir>
-./detr_demo detr.adla input/
+./detr_demo detr_w16a16.adla input/
 ```
 
-**Note:** Replace `detr.adla` with your actual model file path.
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/detr_demo` and the corresponding 32-bit library path. Replace `detr_w16a16.adla` with your actual model file name.
 
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -173,9 +208,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
-cd examples/detr/cpp
+cd examples/DETR/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -183,46 +220,60 @@ cd examples/detr/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/detr_demo` (or `build/linux/32/detr_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/detr_demo`
+* 32-bit: `build/linux/32/detr_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory).
+
+##### 2. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
-cd examples/detr/cpp
+##### 3. Build
+
+```bash
+cd examples/DETR/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/detr_demo` (or `build/yocto/32/detr_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/detr_demo`
+* 32-bit: `build/yocto/32/detr_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/detr_demo /data/local/tmp/
-adb push ../model/detr.adla /data/local/tmp/
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/detr_demo /data/local/tmp/
+adb push ../model/detr_w16a16.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
 # Run on device
@@ -231,27 +282,36 @@ cd /data/local/tmp
 chmod +x detr_demo
 
 # Usage: ./detr_demo <model_path> <image_dir>
-./detr_demo detr.adla input/
+./detr_demo detr_w16a16.adla input/
 ```
 
-**Note:** Replace `detr.adla` with your actual model file name.
+> **Note:** Replace `detr_w16a16.adla` with your actual model file name. Adjust the executable path if using a 32-bit or Yocto build.
 
 ## 5. Results
 
-**Performance Feedback**
+### Performance Feedback
 
-By setting the loglevel to INFO, the program provides real-time performance metrics upon completion. The console log will display essential hardware and execution details, including:
-- Hardware Information: System and ADLA library versions.
-- Model Overview: Basic input/output configurations.
-- NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
+By setting the log level to `INFO`, the program provides runtime performance information after inference. The console output may include:
 
-**Detection Output**
+* **Hardware Information:** System and ADLA library versions.
+* **Model Overview:** Input and output tensor configurations.
+* **NPU Metrics:** Inference latency and DRAM bandwidth usage.
 
-The program will convert the model, print the detection count, and inference time. The result image with bounding boxes will be saved to the specified output path (`model_result/test_image_result.jpg` by default).
+### Detection Output
 
-You can pull the result image back to view it:
-```bash
-adb pull model_result/test_image_result.png
+For each input image, the DETR demo performs object detection and generates a visualization containing the detected bounding boxes.
+
+The result images are saved inside the model result directory. For example:
+
+```text
+<model_name>_result/
+└── test_image_result.jpg
 ```
-![alt text](result.png)
 
+You can pull a result image back from the device for inspection:
+
+```bash
+adb pull <model_name>_result/test_image_result.jpg
+```
+
+![DETR detection result](result.png)

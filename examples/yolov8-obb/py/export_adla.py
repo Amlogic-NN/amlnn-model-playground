@@ -27,6 +27,7 @@ from amlnn.api import AMLNN
 MEAN = np.array([0, 0, 0], dtype=np.float32)
 STD  = np.array([255, 255, 255], dtype=np.float32)
 
+
 def snapshot_adla_files(search_dirs):
     files = {}
 
@@ -47,26 +48,17 @@ def find_updated_adla_files(search_dirs, known_files):
     return sorted(updated_files, key=lambda path: current_files[path][0], reverse=True)
 
 
-def get_output_path(adla_arg, model_path):
-    requested_path = Path(adla_arg)
-
-    if requested_path.suffix.lower() == ".adla":
-        return requested_path
-
-    return requested_path / f"{model_path.stem}.adla"
-
-
 def main():
     parser = argparse.ArgumentParser(description="Export ONNX to ADLA")
     parser.add_argument("--onnx", required=True, help="Path to input .onnx model")
     parser.add_argument("--dataset-path", help="Path to quantization dataset")
     parser.add_argument("--target-platform", required=True, help="Platform ID, for example: 001, 002, 003")
-    parser.add_argument("--adla", default="../model", help="Output .adla file or directory (default: ../model)")
+    parser.add_argument("--output-dir", default="../model", help="Directory where the generated .adla model will be saved")
     args = parser.parse_args()
-
 
     model_path = Path(args.onnx).resolve()
     dataset_path = Path(args.dataset_path).resolve() if args.dataset_path else None
+    output_dir = Path(args.output_dir).resolve()
 
     if not model_path.is_file():
         raise FileNotFoundError(f"Model not found: {model_path}")
@@ -78,8 +70,7 @@ def main():
         if dataset_path.suffix.lower() != ".txt":
             raise ValueError(f"Dataset path must be a .txt file: {dataset_path}")
 
-    output_path = get_output_path(args.adla, model_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     search_dirs = {Path.cwd().resolve(), model_path.parent}
     known_adla_files = snapshot_adla_files(search_dirs)
@@ -90,16 +81,17 @@ def main():
     amlnn.load_onnx(
         model=str(model_path),
         outputs=[
-        "/model.22/cv2.0/cv2.0.2/Conv_output_0",     # <-- Stride 8 dfl (1x64x128x128)
-        "/model.22/cv4.0/cv4.0.2/Conv_output_0",     # <-- Stride 8 angle (1x1x128x128)
-        "/model.22/cv3.0/cv3.0.2/Conv_output_0",     # <-- Stride 8 cls (1x15x128x128)
-        "/model.22/cv2.1/cv2.1.2/Conv_output_0",     # <-- Stride 16 dfl (1x64x64x64)
-        "/model.22/cv4.1/cv4.1.2/Conv_output_0",     # <-- Stride 16 angle (1x1x64x64)
-        "/model.22/cv3.1/cv3.1.2/Conv_output_0",     # <-- Stride 16 cls (1x15x64x64)
-        "/model.22/cv2.2/cv2.2.2/Conv_output_0",     # <-- Stride 32 dfl (1x64x32x32)
-        "/model.22/cv4.2/cv4.2.2/Conv_output_0",     # <-- Stride 32 angle (1x1x32x32)
-        "/model.22/cv3.2/cv3.2.2/Conv_output_0"      # <-- Stride 32 cls (1x15x32x32)
-    ])
+            "/model.22/cv2.0/cv2.0.2/Conv_output_0",     # <-- Stride 8 dfl (1x64x128x128)
+            "/model.22/cv4.0/cv4.0.2/Conv_output_0",     # <-- Stride 8 angle (1x1x128x128)
+            "/model.22/cv3.0/cv3.0.2/Conv_output_0",     # <-- Stride 8 cls (1x15x128x128)
+            "/model.22/cv2.1/cv2.1.2/Conv_output_0",     # <-- Stride 16 dfl (1x64x64x64)
+            "/model.22/cv4.1/cv4.1.2/Conv_output_0",     # <-- Stride 16 angle (1x1x64x64)
+            "/model.22/cv3.1/cv3.1.2/Conv_output_0",     # <-- Stride 16 cls (1x15x64x64)
+            "/model.22/cv2.2/cv2.2.2/Conv_output_0",     # <-- Stride 32 dfl (1x64x32x32)
+            "/model.22/cv4.2/cv4.2.2/Conv_output_0",     # <-- Stride 32 angle (1x1x32x32)
+            "/model.22/cv3.2/cv3.2.2/Conv_output_0"      # <-- Stride 32 cls (1x15x32x32)
+        ]
+    )
 
     amlnn.config(
         # export_intermediate=True,
@@ -122,14 +114,15 @@ def main():
         raise RuntimeError("export_adla did not create or update a .adla file")
 
     generated_path = updated_adla_files[0]
+    output_path = output_dir / generated_path.name
 
-    if generated_path != output_path.resolve():
+    if generated_path != output_path:
         shutil.copy2(generated_path, output_path)
 
     if not output_path.is_file():
         raise RuntimeError(f"Failed to save ADLA model: {output_path}")
 
-    print(f"saved: {output_path.resolve()}")
+    print(f"saved: {output_path}")
 
 
 if __name__ == "__main__":

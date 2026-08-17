@@ -15,6 +15,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
+
 import argparse
 import shutil
 from pathlib import Path
@@ -41,29 +42,20 @@ def find_updated_adla_files(search_dirs, known_files):
     return sorted(updated_files, key=lambda path: current_files[path][0], reverse=True)
 
 
-def get_output_path(adla_arg, model_path):
-    requested_path = Path(adla_arg)
-
-    if requested_path.suffix.lower() == ".adla":
-        return requested_path
-
-    return requested_path / f"{model_path.stem}.adla"
-
-
 def main():
     parser = argparse.ArgumentParser(description="Export Lite Transformer English-to-French ONNX model to ADLA")
     parser.add_argument("--onnx", required=True, help="Path to ONNX model")
     parser.add_argument("--target-platform", required=True, help="Platform ID, e.g. 001, 002, 003")
-    parser.add_argument("--adla", default="../model", help="Optional output .adla path")
+    parser.add_argument("--output-dir", default="../model", help="Directory where the generated .adla model will be saved")
     args = parser.parse_args()
 
     model_path = Path(args.onnx).resolve()
+    output_dir = Path(args.output_dir).resolve()
 
     if not model_path.is_file():
         raise FileNotFoundError(f"Model not found: {model_path}")
 
-    output_path = get_output_path(args.adla, model_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     search_dirs = {Path.cwd().resolve(), model_path.parent}
     known_adla_files = snapshot_adla_files(search_dirs)
@@ -77,7 +69,7 @@ def main():
 
     amlnn.config(
         quantized_dtype="w8a16",
-        activation_dtype="fp16",
+        activation_dtype="f16",
         target_platform=f"PRODUCT_PID0XA{args.target_platform.zfill(3)}",
     )
 
@@ -90,6 +82,7 @@ def main():
         raise RuntimeError("export_adla did not create or update a Lite Transformer .adla file")
 
     generated_path = updated_adla_files[0]
+    output_path = output_dir / generated_path.name
 
     if generated_path != output_path:
         shutil.copy2(generated_path, output_path)

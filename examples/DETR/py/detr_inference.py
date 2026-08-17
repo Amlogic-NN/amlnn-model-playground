@@ -155,14 +155,14 @@ def draw_detections(img, detections, save_path=None, in_place=False):
 
 def main():
     parser = argparse.ArgumentParser(description="DETR Demo")
-    parser.add_argument("--model-path", required=True, help="Path to .adla model")
+    parser.add_argument("--adla", required=True, help="Path to .adla model")
     parser.add_argument("--image-dir", required=True, help="Directory containing test images")
     parser.add_argument("--conf", type=float, default=0.5, help="Detection confidence threshold")
     args = parser.parse_args()
 
     amlnn = AMLNN()
     amlnn.init_runtime(mode="native", enable_perf=True)
-    amlnn.load_model(path=args.model_path)
+    amlnn.load_model(path=args.adla)
     tensor_info = amlnn.get_tensor_info()
     print(amlnn.get_sdk_version())
 
@@ -186,7 +186,7 @@ def main():
     zp = int(tensor_attr["zp"])
     tensor_type = int(tensor_attr["type"])
 
-    model_name = Path(args.model_path).stem
+    model_name = Path(args.adla).stem
     result_dir = f"{model_name}_result"
     os.makedirs(result_dir, exist_ok=True)
 
@@ -216,7 +216,7 @@ def main():
             print(f"Error processing {os.path.basename(image_path)}: {e}")
 
     print(amlnn.get_perf_info())
-    amlnn.perf_visualize()
+    # amlnn.perf_visualize()
     amlnn.uninit()
     return 0
 

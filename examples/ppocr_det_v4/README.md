@@ -4,9 +4,9 @@ This example runs PPOCR_Det with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX model.
 2. Convert the ONNX model to an ADLA model.
-3. Run the Python demo with ADLA model.
+3. Run the Python demo with the ADLA model.
 4. Run the C++ (Linux/Android) demo with the ADLA model.
-5. Check detection images/results.
+5. Check text detection results.
 
 ## Directory Layout
 
@@ -29,14 +29,17 @@ The model pre-processing and post-processing code in this example was partially 
 
 ## 1. Prepare The ONNX Model
 
-### Download onnx
+### Download ONNX
 
-Download the prepared onnx model and put it under `examples/ppocr_det_v4/model/`:
+Download the prepared ONNX model:
 
-https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppocr_det_v4/ppocr_det_static.onnx
+### [Download PaddleOCR Detection v4 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppocr_det_v4/ppocr_det_static.onnx)
 
+Place the downloaded model under:
 
-Place the downloaded `ppocr_det_static.onnx` under `examples/ppocr_det_v4/model/`
+```text
+examples/ppocr_det_v4/model/ppocr_det_static.onnx
+```
 
 ## 2. Convert ONNX To ADLA
 
@@ -48,65 +51,80 @@ python export_adla.py \
   --onnx ../model/ppocr_det_static.onnx \
   --dataset-path ../../../resource/sign_dataset.txt \
   --target-platform 007 \
-  --adla ../model
+  --output-dir ../model
 ```
 
-| Parameter         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--onnx`        | `.onnx` model path                                              |
-| `--dataset-path`      | Path to a `.txt` containing all the paths to the quantization images  |
-| `--target-platform`   | Specify target platform. For specific platforms, click [**HERE**](../../docs/mapping.md) to see the full list |
-| `--adla` | Output `.adla` file path. Optional; defaults to `../model` if not specified. |
+| Parameter           | Description                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `--onnx`            | Path to the PaddleOCR Detection v4 `.onnx` model.                                                                                        |
+| `--dataset-path`    | (Optional) Path to a `.txt` file containing the input paths used for quantization calibration. Required for `w8a8` and `w8a16 (i16)`.[1] |
+| `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md).                                          |
+| `--output-dir`      | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`.                                            |
 
-After conversion, the expected model path is:
+> **[1] Quantization dataset note**
+>
+> A calibration dataset is **not required** when using `activation_dtype="f16"`, such as `w8a16 (f16)` or `w16a16 (f16)`. Set this explicitly in the `amlnn.config()` call.
+>
+> Without `activation_dtype="f16"`, `w8a16` and `w16a16` use `i16` activations and require a calibration dataset. If no dataset is provided, AMLNN generates random calibration data instead of failing, which can severely degrade model accuracy.
+>
+> `activation_dtype` does not apply to `w8a8`.
+
+Expected model path:
 
 ```text
 examples/ppocr_det_v4/model/ppocr_det_static_w8a8.adla
 ```
+
 ## 3. Run Python Demo
 
-**Prerequisites:**
-- Python 3.10
-- Required packages: `numpy`, `opencv-python`, `amlnn`
+### Prerequisites
 
-**Install dependencies:**
+* Python 3.10
+* Required packages: `numpy`, `opencv-python`, `amlnn`
+
+### Install Dependencies
+
 ```bash
 pip install numpy opencv-python amlnn_edge_toolkit-1.0.0-cp310-cp310-linux_aarch64.whl
 ```
 
-**Run on device:**
+### Run on Device
+
 ```bash
 python ppocr_det_inference.py \
-    --model-path ../model/ppocr_det_static_w8a8.adla \
+    --adla ../model/ppocr_det_static_w8a8.adla \
     --image-dir ../input
 ```
+
 Argument Descriptions:
-| Argument         | Description                                                  |
-| ----------------- | ------------------------------------------------------------ |
-| `--model-path` | path to `.adla` model  |
-|` --image-dir`   | Directory containing test images |
 
-The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the current directory and save results to a `{model_name}_result` folder.
+| Argument      | Description                                       |
+| ------------- | ------------------------------------------------- |
+| `--adla`      | Path to the PaddleOCR Detection v4 `.adla` model. |
+| `--image-dir` | Directory containing test images.                 |
 
+The script will automatically process all image files (`.jpg`, `.jpeg`, `.png`, `.bmp`) in the specified image directory and save the text detection visualization results to the model result directory.
 
 ## 4. Run C++ Demo
 
 ### Build For Android
 
-**Prerequisites:**
-- **Android NDK** (r27d recommended) installed on your system.
-- **AMLNN Toolkit** downloaded and extracted.
-- Prebuilt OpenCV located at `../../../dependency/opencv/` (relative to the script directory)
+#### Prerequisites
 
-**1. Setup Environment:**
-Export the paths to your NDK (the toolchain) and AMLNN (the neural network dependency) so the script can find them.
+* **Android NDK** (r27d recommended) installed on your system.
+* **AMLNN Toolkit** downloaded and extracted.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+
+#### 1. Setup Environment
+
+Export the paths to your NDK and AMLNN so the build script can find the required toolchain and neural network dependencies.
+
 ```bash
 export ANDROID_NDK_PATH=/path/to/android-ndk-r27d
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
 ```
 
-**2. Build:**
-Navigate to the C++ directory and run the build script.
+#### 2. Build
 
 ```bash
 cd examples/ppocr_det_v4/cpp
@@ -118,14 +136,19 @@ cd examples/ppocr_det_v4/cpp
 ./build-android.sh -a armeabi-v7a
 ```
 
-The executable will be generated at `build/android/ppocrv4_det_demo` (Note: executable name may vary, verify in build folder).
+The executable will be generated in the build folder corresponding to the selected Android ABI:
 
-#### 2. Run
+* 64-bit: `build/android/arm64-v8a/ppocrv4_det_demo`
+* 32-bit: `build/android/armeabi-v7a/ppocrv4_det_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit (`arm64-v8a`) build.
 
 ```bash
-# Push executable to device
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/android/ppocrv4_det_demo /data/local/tmp/
+# Push executable and assets to device
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/android/arm64-v8a/ppocrv4_det_demo /data/local/tmp/
 adb push ../model/ppocr_det_static_w8a8.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
@@ -133,29 +156,34 @@ adb push ../input/ /data/local/tmp/
 adb shell
 cd /data/local/tmp
 chmod +x ppocrv4_det_demo
-export LD_LIBRARY_PATH=/vendor/lib64 or (/vendor/lib)
+export LD_LIBRARY_PATH=/vendor/lib64
 
 # Usage: ./ppocrv4_det_demo <model_path> <image_dir>
 ./ppocrv4_det_demo ppocr_det_static_w8a8.adla input/
 ```
 
-**Note:** Replace `ppocr_det_static_w8a8.adla` with your actual model file path.
+> **Note:** For a 32-bit (`armeabi-v7a`) build, use `build/android/armeabi-v7a/ppocrv4_det_demo` and the corresponding 32-bit library path. Replace `ppocr_det_static_w8a8.adla` with your actual generated model filename.
 
 ---
+
 ### Build For Linux
 
-The Linux build process supports two distinct modes: **Standard Linux cross-compilation** (default) and **Yocto SDK compilation**.
+The Linux build process supports two distinct modes:
 
-### Mode 1: Standard Linux Cross-Compile (Default)
+1. **Standard Linux cross-compilation** (default)
+2. **Yocto SDK compilation**
 
-**Prerequisites:**
-- A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
-- The toolchain's `bin/` folder must be added to your system's `PATH`.
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
-- `AMLNN_HOME` environment variable set
+#### Mode 1: Standard Linux Cross-Compile (Default)
 
-**1. Setup Environment:**
-Add your downloaded toolchain to your `PATH` and export the `AMLNN_HOME` variable so the script can find the compiler and neural network dependencies.
+##### Prerequisites
+
+* A GCC Cross-Compiler toolchain (GCC 10.3 recommended).
+* The toolchain's `bin/` folder must be added to your system's `PATH`.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+* `AMLNN_HOME` environment variable set.
+
+##### 1. Setup Environment
+
 ```bash
 # Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
@@ -167,9 +195,11 @@ export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-aarch64-none-linux-gnu/bin:$PAT
 export PATH=/path/to/gcc-arm-10.3-2021.07-x86_64-arm-none-linux-gnueabihf/bin:$PATH
 ```
 
-**2. Build:**
+##### 2. Build
+
 ```bash
 cd examples/ppocr_det_v4/cpp
+
 # Build for 64-bit (Default)
 ./build-linux.sh
 
@@ -177,45 +207,58 @@ cd examples/ppocr_det_v4/cpp
 ./build-linux.sh -b 32
 ```
 
-*(Optional Override):* If your compiler has a different prefix name (for example, `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`), you can override the default by setting the `GCC_COMPILER` variable:
+> **Optional Override:** If your compiler has a different prefix name, for example `aarch64-linux-gnu` instead of `aarch64-none-linux-gnu`, you can override the default by setting the `GCC_COMPILER` variable:
+
 ```bash
 GCC_COMPILER=aarch64-linux-gnu ./build-linux.sh
 ```
 
-The executable will be generated at `build/linux/64/ppocrv4_det_demo` (or `build/linux/32/ppocrv4_det_demo`).
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-### Mode 2: Yocto/Debian/Armbian Build
+* 64-bit: `build/linux/64/ppocrv4_det_demo`
+* 32-bit: `build/linux/32/ppocrv4_det_demo`
 
-**Prerequisites:**
-- Yocto SDK installed
-- CMake Toolchain file available
-- Prebuilt OpenCV located in the `dependency/opencv/` folder.
+#### Mode 2: Yocto/Debian/Armbian Build
 
-**Build:**
+##### 1. Prerequisites
+
+* Yocto SDK installed.
+* CMake Toolchain file available.
+* Prebuilt OpenCV located in the `dependency/opencv/` folder.
+
+##### 2. Setup Environment
+
 ```bash
-# Export the AMLNN path
 export AMLNN_HOME=/path/to/amlnn-toolkit/amlnn_runtime
+```
 
+##### 3. Build
+
+```bash
 cd examples/ppocr_det_v4/cpp
 
 # Build for Yocto 64-bit (Default)
 ./build-linux.sh -m yocto -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 
-# Or build for Yocto 32-bit
+# Build for Yocto 32-bit
 ./build-linux.sh -m yocto -b 32 -s /path/to/yocto_sdk_root -t /path/to/toolchain.cmake
 ```
-*(Note: You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags).*
 
-The executable will be generated at `build/yocto/64/ppocrv4_det_demo` (or `build/yocto/32/ppocrv4_det_demo`).
+> **Note:** You can also use the `YOCTO_SDK_ROOT` and `TOOLCHAIN_FILE` environment variables instead of passing the `-s` and `-t` flags.
 
----
+The executable will be generated in the build folder corresponding to the selected architecture:
 
-**Run:**
+* 64-bit: `build/yocto/64/ppocrv4_det_demo`
+* 32-bit: `build/yocto/32/ppocrv4_det_demo`
+
+#### 3. Example Run
+
+The following example uses the default 64-bit Linux build.
 
 ```bash
 # Push executable and assets to device (adjust build path if using Yocto)
-adb shell "mkdir -p /data/local/tmp/" 
-adb push build/linux/ppocrv4_det_demo /data/local/tmp/
+adb shell "mkdir -p /data/local/tmp/"
+adb push build/linux/64/ppocrv4_det_demo /data/local/tmp/
 adb push ../model/ppocr_det_static_w8a8.adla /data/local/tmp/
 adb push ../input/ /data/local/tmp/
 
@@ -228,23 +271,35 @@ chmod +x ppocrv4_det_demo
 ./ppocrv4_det_demo ppocr_det_static_w8a8.adla input/
 ```
 
-**Note:** Replace `ppocr_det_static_w8a8.adla` with your actual model file name.
+> **Note:** Replace `ppocr_det_static_w8a8.adla` with your actual generated model filename. Adjust the executable path if using a 32-bit or Yocto build.
 
 ## 5. Results
 
-**Performance Feedback**
+### Performance Feedback
 
-By setting the loglevel to INFO, the program provides real-time performance metrics upon completion. The console log will display essential hardware and execution details, including:
-- Hardware Information: System and ADLA library versions.
-- Model Overview: Basic input/output configurations.
-- NPU Metrics: Total inference time (latency) and total DRAM bandwidth consumption.
+By setting the log level to `INFO`, the program provides runtime performance information after inference. The console output may include:
 
-**Detection Output**
+* **Hardware Information:** System and ADLA library versions.
+* **Model Overview:** Input and output tensor configurations.
+* **NPU Metrics:** Inference latency and DRAM bandwidth usage.
 
-The program will convert the model, print the detection count, and inference time. The result image with bounding boxes will be saved to the specified output path (`model_result/test_image_result.jpg` by default).
+### Detection Output
+
+For each input image, the program detects text regions, prints the detection information and inference time, and saves the result image with the detected text regions drawn on the image.
+
+The result image is saved to the model result directory.
+
+Example result path:
+
+```text
+ppocr_det_static_w8a8_result/
+└── test_image_result.jpg
+```
 
 You can pull the result image back to view it:
+
 ```bash
-adb pull model_result/test_image_result.png
+adb pull ppocr_det_static_w8a8_result/test_image_result.jpg
 ```
-![alt text](./result.jpg) 
+
+![alt text](./result.jpg)
