@@ -28,6 +28,8 @@ Performance and accuracy evaluation data for models running on the Amlogic NPU p
 |                    | decoder_tiny_en         | [1, 1500, 384]&[1, 48] | w8a16(hybrid)  | 10.35   | 9.22   | 51.55  |
 | clip               | clip-vit-base-patch32   | [1, 3, 224, 224]       | w8a16(hybrid)  | 7.48    | 6.82   | 73.00  |
 
+- The CNN performance data (FPS / latency) includes both hardware and software execution time; it is not purely hardware (NPU) time.
+
 ### Large Language Models
 
 | Model      | Version | Param | SoC        | Dtype  | SeqLen | Max Context | New Tokens | TTFT (ms) | Tokens/s | Memory (MB) |
@@ -111,7 +113,8 @@ Performance and accuracy evaluation data for models running on the Amlogic NPU p
 | MobileVLM  | 2       | 1.7B  | A9(A311Y3) | w4a16  | 128    | 2048        | 1920       | 276.06    | 12.02    | 1331.29     |
 | MiniCPM-V  | 2.6     | 8B    | A9(A311Y3) | w4a16  | 128    | 2048        | 1920       | 1214.82   | 2.07     | 4877.57     |
 
-- The performance data represents the runtime of the model on the NPU, as tested using the native case. Unless otherwise specified, it does not include the time spent on pre- and post-processing.
+- The LLM performance data above is tested on the A9 (A311Y3) reference board running Armbian, in both 8G and 16G configurations.
+- The performance data represents the runtime of the model on the NPU, as tested using the native case. 
 
 ## Accuracy Evaluation
 
