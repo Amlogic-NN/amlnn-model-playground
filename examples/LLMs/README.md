@@ -1,153 +1,236 @@
 # LLM Examples
 
+Run LLM inference on Amlogic devices using the LLMSDK C++ runtime or the optional Python toolkit.
+
 ## Resource Requirements
 
-| Model | CPU | NPU | GPU |
-| :--- | :--- | :--- | :--- |
-| Qwen(0.5B) | Minimum cores: 4<br>DDR: 4G (2G reserved for NN) | At least 3.2T | NO |
-| Qwen(1.8B) | Minimum cores: 4<br>DDR: 8G (6G~6.5G reserved for NN) | At least 3.2T | NO |
-| Gemma(2B) | Minimum cores: 4<br>DDR: 8G (5.5G~6G reserved for NN) | At least 3.2T | NO |
+| Model | Minimum CPU Cores | Total DDR | DDR Reserved for NN | Minimum NPU Compute | GPU Required |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Qwen (0.5B) | 4 | 4 GB | 2 GB | 3.2 TOPS | No |
+| Qwen (1.8B) | 4 | 8 GB | 6–6.5 GB | 3.2 TOPS | No |
+| Gemma (2B) | 4 | 8 GB | 5.5–6 GB | 3.2 TOPS | No |
 
+Memory requirements depend on the model, quantization configuration, and context length. Use the values above as the requirements for the configurations covered by this guide.
 
+## Models and SDKs
 
-## Download Models
+| Resource | Description |
+| :--- | :--- |
+| [ADLA Hub](https://huggingface.co/Amlogic-NN/amlnn-adla-models) | Pre-quantized ADLA models |
+| [LLMSDK](https://github.com/Amlogic-NN/amlnn-toolkit/tree/main/amlnn_runtime/llm_runtime) | C++ runtime libraries and headers |
+| [amlllm_edge_toolkit_lite](https://github.com/Amlogic-NN/amlnn-toolkit/tree/main/amlnn_toolkit_lite/amlllm_edge_toolkit_lite) | Optional Python inference toolkit |
 
-Pre-quantized ADLA models are available on Hugging Face:
+Download an ADLA model for your target device and its matching tokenizer resources before running the examples.
 
-- **ADLA Hub**: [Hugging Face Repository](https://huggingface.co/Amlogic-NN/amlnn-adla-models)
+## Workspace Setup
 
-## Get LLMSDK (C++ runtime library)
+This guide assumes the following directory layout:
 
-- **LLMSDK** [llmsdk](https://github.com/Amlogic-NN/amlnn-toolkit/tree/main/amlnn_runtime/llm_runtime)
+```text
+workspace/
+├── amlnn-model-playground/
+│   └── examples/LLMs/
+│       ├── cpp/
+│       └── py/
+└── amlnn-toolkit/
+```
 
-## Get amlllm_edge_toolkit_lite (optional)
-- **amlllm_edge_toolkit_lite** [amlllm_edge_toolkit_lite](https://github.com/Amlogic-NN/amlnn-toolkit/tree/main/amlnn_toolkit_lite/amlllm_edge_toolkit_lite)
+From the root of your existing `amlnn-model-playground` checkout, clone the SDK repository into the parent directory:
 
-## Run LLM on Amlogic Devices
+```bash
+git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../amlnn-toolkit
+```
 
-### CPP
-To compile the CPP project using Android NDK, please follow these steps:
+Skip this step if the SDK repository is already present.
 
-1. **Get the llmsdk library and header files**:
-   Clone the `amlnn-toolkit` repository to get the necessary libraries for compilation.
-   ```bash
-   # Clone to the parent directory of amlnn-model-playground
-   git clone https://github.com/Amlogic-NN/amlnn-toolkit.git
-   ```
+## C++ Example — Android
 
-2. **Set the NDK path**:
-   ```bash
-   export NDK_PATH=/your/ndk/path/android-ndk-r25c
-   ```
+### 1. Configure the Android NDK
 
-3. **Add NDK to your PATH**:
-   ```bash
-   export PATH=$NDK_PATH:$PATH
-   ```
+Set `NDK_PATH` to your Android NDK installation. The example below uses NDK r25c:
 
-4. **Compile**:
-   Navigate to the `cpp` directory and run `build-android.sh`:
-   ```bash
-   cd examples/LLMs/cpp
-   ./build-android.sh
-   ```
+```bash
+export NDK_PATH=/your/ndk/path/android-ndk-r25c
+export PATH="$NDK_PATH:$PATH"
+```
 
-5. **Run**:
-   Push the compiled executable, model, and tokenizer to your Android device.
+### 2. Build the Example
 
-   Optional configuration:
-   - **Push `llmsdk.so`**: If not already present on the device, push it to `/data/local/tmp`.
-   - **Set permissions**:
-     ```bash
-     chmod +x demo_llm_main
-     ```
-   - **Set environment variable**:
-     ```bash
-     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/vendor/lib64/:/data/local/tmp
-     ```
+From the `amlnn-model-playground` repository root:
 
-   Then execute:
-   ```bash
-   ./demo_llm_main Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla tokenizer.json
-   ```
+```bash
+cd examples/LLMs/cpp
+./build-android.sh
+```
 
-### Python (Arm-based Ubuntu)
+### 3. Deploy to the Device
 
+Push the generated executable, ADLA model, and tokenizer to `/data/local/tmp`.
 
-**System Requirements**:
-- OS: Ubuntu 22.04 / Debian
+Run these commands on the host, replacing each placeholder with the actual local path:
+
+```bash
+adb push <executable_path>/demo_llm_main /data/local/tmp/
+adb push <model_path>/Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla /data/local/tmp/
+adb push <tokenizer_path>/tokenizer.json /data/local/tmp/
+```
+
+If the LLMSDK shared library is not already available on the device, deploy it as well:
+
+```bash
+adb push <llmsdk_path>/llmsdk.so /data/local/tmp/
+```
+
+Use the library filename supplied by your SDK package.
+
+### 4. Run Inference
+
+Open a device shell and run:
+
+```bash
+adb shell
+cd /data/local/tmp
+chmod +x demo_llm_main
+export LD_LIBRARY_PATH="/vendor/lib64:/data/local/tmp${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+./demo_llm_main Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla tokenizer.json
+```
+
+The model filename above is an A311D2 example. Replace it with the model package for your target device.
+
+## Python Example — Arm64 Ubuntu / Debian
+
+### Prerequisites
+
+| Component | Requirement |
+| :--- | :--- |
+| Architecture | Linux aarch64 |
+| OS | Ubuntu 22.04 or Debian |
+| Python | 3.10 |
+| NPU driver/runtime | Compatible ADLA software; LIBADLA 1.7.x or later |
 
 > [!CAUTION]
-> The system image is awaiting release; there is currently no official image available.
-- Python: 3.10
+> According to the release status supplied for this guide, the official system image is awaiting release. Use a board image with the required NPU driver and runtime installed.
 
-**Verify NPU Driver Version**:
-Execute the following commands in the serial console to check the NPU driver version:
+### 1. Check the ADLA Installation
+
+Run the following commands on the board through a serial console or terminal:
+
 ```bash
-dmesg | grep adla
+dmesg | grep -i adla
 strings /usr/lib/libadla.so | grep LIBADLA
 ```
-The driver version must be 1.7.x or higher.
 
-1. **Create Python Environment**:
-   ```bash
-   # Install Miniforge if needed
-   wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
-   bash Miniforge3-Linux-aarch64.sh
-   
-   # Create Environment
-   conda create -n nnserver_310 python=3.10 -y
-   conda activate nnserver_310
-   ```
+Check the driver information in the kernel log and the LIBADLA version reported by the shared library. This guide requires LIBADLA 1.7.x or later. If the library is installed elsewhere, adjust the path accordingly.
 
-2. **Get and install amlllm python whl**:
-   Clone the `amlnn-toolkit` repository to get the necessary libraries for compilation.
-   ```bash
-   # Clone to the parent directory of amlnn-model-playground
-   git clone https://github.com/Amlogic-NN/amlnn-toolkit.git ../../../amlnn-toolkit
+### 2. Create a Python Environment
 
-   # Install python whl
-   pip install ../../../amlnn-toolkit/amlnn_edge_toolkit_lite/whl/amlllm-1.0.0-cp310-cp310-linux_aarch64.whl
-   ```
+Install Miniforge if needed:
 
-3. **Run**:
-   Navigate to the`py`directory and run`simple_chat.py`:
-   ```bash
-   cd examples/LLMs/py
-   python simple_chat.py --model <model_path> --tokenizer <tokenizer_path> [options]
-   ```
+```bash
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-aarch64.sh
+bash Miniforge3-Linux-aarch64.sh
+```
 
-4. **Parameters**:
-   - `--model`: (Required) Path to LLM model file
-   - `--tokenizer`: (Required) Path to tokenizer resources
-   - `--sampling-mode`: Sampling mode, options: `argmax`, `top_p`, `top_k`, default: `argmax`
-   - `--top-k`: Top-K parameter, default: 3
-   - `--top-p`: Top-P parameter, default: 0.9
-   - `--temperature`: Softmax temperature parameter, default: 1.0
-   - `--repeat-penalty`: Repeat penalty factor, default: 1.1
-   - `--loglevel`: Log level, options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, default: `ERROR`
-   - `--model-type`: Model type template, options: `none`, `qwen`, `deepseek`, `gemma`, `gemma3`, `llama`, `tiny_llama`, `tiny_llama_v0_4`, `phi_1_5`, `phi_2`, default: `none`
+Follow the installer instructions, then reopen your shell if required. Create and activate the environment:
 
-5. **Usage Examples**:
-   ```bash
-   # Using Qwen model
-   python simple_chat.py --model Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla --tokenizer tokenizer.json --model-type qwen
-   
-   # Using Top-P sampling mode
-   python simple_chat.py --model model.adla --tokenizer tokenizer.json --sampling-mode top_p --top-p 0.9 --temperature 0.8
-   
-   # Using Top-K sampling mode
-   python simple_chat.py --model model.adla --tokenizer tokenizer.json --sampling-mode top_k --top-k 5
-   ```
+```bash
+conda create -n amlllm_310 python=3.10 -y
+conda activate amlllm_310
+```
 
-6. **Interactive Commands**:
-   After the program starts, you enter an interactive interface that supports the following commands:
-   - Direct input: Enter text and press Enter, the model will generate a response (streaming output)
-   - `exit`: Exit the program
-   - `new_talk`: Clear conversation history and start a new conversation
-   - `break`: Interrupt the currently generating response
-   - `Ctrl+C`: Send interrupt signal
+### 3. Install the Python Package
 
-## Result
+From the `amlnn-model-playground` repository root, locate the Python 3.10 / aarch64 wheel in the adjacent SDK checkout:
 
-![llm-result0](./model/llm-result0.png) 
+```bash
+find ../amlnn-toolkit -type f -name 'amlllm-1.0.0-cp310-cp310-linux_aarch64.whl'
+```
+
+Install it using the path returned by the command:
+
+```bash
+python -m pip install <wheel_path>/amlllm-1.0.0-cp310-cp310-linux_aarch64.whl
+```
+
+If your SDK release provides a different package version, use its matching Python 3.10 / aarch64 wheel. See the [Python toolkit documentation](https://github.com/Amlogic-NN/amlnn-toolkit/tree/main/amlnn_toolkit_lite/amlllm_edge_toolkit_lite) for package-specific installation instructions.
+
+### 4. Run the Chat Example
+
+From the `amlnn-model-playground` repository root:
+
+```bash
+cd examples/LLMs/py
+
+python simple_chat.py \
+  --model <model_path> \
+  --tokenizer <tokenizer_path> \
+  [options]
+```
+
+Replace the placeholders with actual paths. Choose the model template that matches your model, as shown below.
+
+### Command-Line Parameters
+
+| Parameter | Description | Default |
+| :--- | :--- | :--- |
+| `--model` | **Required.** Path to the ADLA model file | — |
+| `--tokenizer` | **Required.** Path to tokenizer resources | — |
+| `--model-type` | Chat template: `none`, `qwen`, `deepseek`, `gemma`, `gemma3`, `llama`, `tiny_llama`, `tiny_llama_v0_4`, `phi_1_5`, or `phi_2` | `none` |
+| `--sampling-mode` | Sampling mode: `argmax`, `top_p`, or `top_k` | `argmax` |
+| `--top-k` | Top-K sampling parameter | `3` |
+| `--top-p` | Top-P sampling parameter | `0.9` |
+| `--temperature` | Softmax temperature | `1.0` |
+| `--repeat-penalty` | Repetition penalty factor | `1.1` |
+| `--loglevel` | Logging level: `DEBUG`, `INFO`, `WARNING`, or `ERROR` | `ERROR` |
+
+### Usage Examples
+
+**Qwen with the default sampling configuration:**
+
+```bash
+python simple_chat.py \
+  --model Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla \
+  --tokenizer tokenizer.json \
+  --model-type qwen
+```
+
+**Top-P sampling:**
+
+```bash
+python simple_chat.py \
+  --model Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla \
+  --tokenizer tokenizer.json \
+  --model-type qwen \
+  --sampling-mode top_p \
+  --top-p 0.9 \
+  --temperature 0.8
+```
+
+**Top-K sampling:**
+
+```bash
+python simple_chat.py \
+  --model Qwen2.5-0.5B-Instruct_quant_i8_a311d2.adla \
+  --tokenizer tokenizer.json \
+  --model-type qwen \
+  --sampling-mode top_k \
+  --top-k 5
+```
+
+### Interactive Commands
+
+Once the chat interface starts, use the following inputs:
+
+| Input | Action |
+| :--- | :--- |
+| Text followed by Enter | Submit a prompt and receive a streamed response |
+| `new_talk` | Clear conversation history and start a new conversation |
+| `break` | Request interruption of the current response |
+| `exit` | Exit the program |
+| `Ctrl+C` | Send an interrupt signal |
+
+## Example Output
+
+![LLM inference example output](./model/llm-result0.png)
+
