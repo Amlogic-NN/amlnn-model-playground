@@ -2,15 +2,6 @@
 
 Run LLM inference on Amlogic devices using the LLMSDK C++ runtime or the optional Python toolkit.
 
-## Resource Requirements
-
-| Model | Minimum CPU Cores | Total DDR | DDR Reserved for NN | Minimum NPU Compute | GPU Required |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| Qwen (0.5B) | 4 | 4 GB | 2 GB | 3.2 TOPS | No |
-| Qwen (1.8B) | 4 | 8 GB | 6–6.5 GB | 3.2 TOPS | No |
-| Gemma (2B) | 4 | 8 GB | 5.5–6 GB | 3.2 TOPS | No |
-
-Memory requirements depend on the model, quantization configuration, and context length. Use the values above as the requirements for the configurations covered by this guide.
 
 ## Models and SDKs
 
