@@ -27,3 +27,19 @@ add_executable(LLM_demo
 target_link_libraries(LLM_demo
     ${AMLNN_LLM_LIBRARY}
 )
+
+find_package(Threads REQUIRED)
+
+add_executable(vlm_embedding_demo
+    main_vlm_embedding.cpp
+)
+
+target_include_directories(vlm_embedding_demo PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty
+)
+
+target_link_libraries(vlm_embedding_demo
+    ${AMLNN_LLM_LIBRARY}
+    Threads::Threads
+    m
+)

@@ -15,7 +15,9 @@
 #
 
 LOCAL_PATH := $(call my-dir)
-LLM_SDK_PATH := $(LOCAL_PATH)/../../../../amlnn-toolkit/nn_runtime/llmsdk
+AMLNN_HOME ?= $(LOCAL_PATH)/../../../../amlnn-toolkit/amlnn_runtime
+LLM_SDK_PATH := $(AMLNN_HOME)/llm_runtime/llmsdk
+LLM_SDK_LIB_DIR := $(LLM_SDK_PATH)/android/$(if $(filter arm64-v8a,$(TARGET_ARCH_ABI)),lib64,lib32)
 3RDPARTY_PATH := $(LOCAL_PATH)/../../../dependency
 $(warning $(LOCAL_PATH))
 
@@ -27,7 +29,7 @@ LOCAL_C_INCLUDES := \
 	$(LLM_SDK_PATH)/include \
 
 LOCAL_LDFLAGS := \
-	-L$(LLM_SDK_PATH)/android/arm64-v8a -lllmsdk
+	-L$(LLM_SDK_LIB_DIR) -lllmsdk
 
 LOCAL_LDLIBS := -llog -ldl -lm -fuse-ld=ld
 
@@ -43,5 +45,16 @@ LOCAL_LICENSE_URL := https://www.apache.org/licenses/LICENSE-2.0
 
 LOCAL_LICENSE_FILE := LICENSE
 
+
+include $(BUILD_EXECUTABLE)
+
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := main_vlm_embedding.cpp
+LOCAL_C_INCLUDES := $(LLM_SDK_PATH)/include $(LOCAL_PATH)/3rdparty
+LOCAL_LDFLAGS := -L$(LLM_SDK_LIB_DIR) -lllmsdk
+LOCAL_LDLIBS := -llog -ldl -lm
+LOCAL_MODULE := vlm_embedding_demo
 
 include $(BUILD_EXECUTABLE)

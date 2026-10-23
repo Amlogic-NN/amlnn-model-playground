@@ -43,7 +43,7 @@ void callback(AML_LLMResult *result, void *userdata, AML_LLMRunStatus run_status
             printf("[Request #%d]\n", my_data->request_id);
             my_data->printed = true;
         }
-        printf("%s", result->text);
+        printf("%s", result->generation.text);
         fflush(stdout);
     }
     else if (run_status == AML_LLM_RUN_FINISH)
