@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # EVA02
 
 This example runs EVA02 with AMLNN. The full flow is:

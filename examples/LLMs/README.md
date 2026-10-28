@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # LLM Examples
 
 Run LLM inference on Amlogic devices using the LLMSDK C++ runtime or the optional Python toolkit.

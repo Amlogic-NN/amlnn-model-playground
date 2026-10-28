@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOv11
 
 This example runs YOLOv11 with AMLNN. The full flow is:

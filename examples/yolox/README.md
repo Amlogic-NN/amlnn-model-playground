@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOX
 
 This example runs YOLOX with AMLNN. The full flow is:

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Mobilenet
 
 This example runs Mobilenet with AMLNN. The full flow is:

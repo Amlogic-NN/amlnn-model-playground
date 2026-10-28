@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # ResNet
 
 This example runs ResNet-50 image classification with AMLNN. The full flow is:

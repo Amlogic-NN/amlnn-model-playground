@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Detr
 
 This example runs Detr with AMLNN. The full flow is:

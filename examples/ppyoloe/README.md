@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PaddlePaddle PPYOLOE
 
 This example runs PPYOLOE with AMLNN. The full flow is:

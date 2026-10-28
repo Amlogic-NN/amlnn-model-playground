@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PP-OCRv5
 
 This example runs [PP-OCRv5](https://github.com/PADDLEPADDLE/PADDLEOCR) text detection and text recognition models with AMLNN. The full flow is:

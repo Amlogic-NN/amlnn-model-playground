@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOv8 Segmentation
 
 This example runs YOLOv8 Segmentation with AMLNN. The full flow is:

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YAMNet
 
 This example runs YAMNet audio classification with AMLNN. The full flow is:

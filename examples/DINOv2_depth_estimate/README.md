@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Dinov2 Depth Estimation
 
 This example runs Dinov2 Depth Estimation with AMLNN. The full flow is:

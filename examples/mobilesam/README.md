@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # MobileSAM
 
 This example runs MobileSAM with AMLNN. The full flow is:

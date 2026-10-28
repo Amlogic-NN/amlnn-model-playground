@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Blazepose_landmark
 
 This example runs Blazepose_landmark with AMLNN. The full flow is:

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Gesture
 
 This example runs Gesture with AMLNN. The full flow is:

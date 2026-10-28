@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOX Android JNI Demo
 
 This example runs YOLOX object detection on Amlogic NPU via **AMLNN SDK2** and a JNI bridge. The app is built with Kotlin + Jetpack Compose and loads the AMLNN runtime through `libnnsdk.so`.

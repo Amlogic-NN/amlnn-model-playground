@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PP-OCRv6
 
 This example runs [PP-OCRv6](https://github.com/PaddlePaddle/PaddleOCR) text detection and text recognition models with AMLNN.

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # DeeplabV3
 
 This example runs DeeplabV3 with AMLNN. The full flow is:

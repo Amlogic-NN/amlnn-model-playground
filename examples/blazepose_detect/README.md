@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Blazepose_detect
 
 This example runs Blazepose_detect with AMLNN. The full flow is:

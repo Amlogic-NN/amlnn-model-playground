@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Whisper
 
 This example runs Whisper with AMLNN. The full flow is:

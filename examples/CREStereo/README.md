@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # CREStereo
 
 This example runs CREStereo with AMLNN. The full flow is:

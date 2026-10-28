@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # SigLIP2
 
 This example runs SigLIP2 with AMLNN. The full flow is:

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Wav2Vec2
 
 This example runs Wav2Vec2 automatic speech recognition with AMLNN. The full flow is:

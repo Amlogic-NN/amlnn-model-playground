@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PaddleOCR Detection
 
 ## 4. Demo Run

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # DTLN
 
 This example demonstrates how to run the [DTLN](https://github.com/breizhn/DTLN) speech enhancement model with AMLNN.

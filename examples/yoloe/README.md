@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOE
 
 This example runs YOLOE with AMLNN. The full flow is:

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # LPRNet
 
 This example runs LPRNet with AMLNN. The full flow is:

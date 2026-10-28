@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Clip
 
 This example runs Clip with AMLNN. The full flow is:

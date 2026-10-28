@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # SenseVoice
 
 This example runs SenseVoice multilingual speech recognition with AMLNN. The full flow is:

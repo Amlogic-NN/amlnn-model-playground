@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # RetinaFace
 
 This example runs RetinaFace face detection with AMLNN. The full flow is:

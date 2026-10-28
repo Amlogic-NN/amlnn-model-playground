@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Dinov2 Linear Classifier
 
 This example runs Dinov2 Linear Classifier with AMLNN. The full flow is:

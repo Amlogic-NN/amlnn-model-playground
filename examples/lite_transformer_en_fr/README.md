@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # Lite Transformer
 
 This example runs Lite Transformer English-to-French translation with AMLNN. The full flow is:

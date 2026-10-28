@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOv8-OBB
 
 This example runs YOLOv8-OBB with AMLNN. The full flow is:

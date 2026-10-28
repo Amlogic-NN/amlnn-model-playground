@@ -1,4 +1,4 @@
-
+**EN** | [CN](README.zh-CN.md)
 
 # Amlogic NN Model Playground
 

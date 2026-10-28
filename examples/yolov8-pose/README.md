@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOv8-Pose
 
 This example runs YOLOv8-Pose with AMLNN. The full flow is:

@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # DINO
 
 This example runs DINO with AMLNN. The full flow is:

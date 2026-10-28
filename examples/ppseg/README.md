@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PaddlePaddle PP-LiteSeg
 
 This example runs PaddlePaddle PP-LiteSeg with AMLNN. The full flow is:

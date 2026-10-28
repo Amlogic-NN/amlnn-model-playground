@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # YOLOWorld
 
 This example runs YOLOWorld with AMLNN. The full flow is:

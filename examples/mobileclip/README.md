@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # MobileCLIP
 
 This example demonstrates image-text matching with AMLNN on Amlogic NPU platforms. It includes Python and C++ inference demos for vision and text encoder `.adla` models.

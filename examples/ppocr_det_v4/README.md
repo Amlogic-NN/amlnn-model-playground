@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PaddleOCR Detection v4
 
 This example runs PPOCR_Det with AMLNN. The full flow is:

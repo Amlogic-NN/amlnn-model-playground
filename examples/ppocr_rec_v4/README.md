@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # PaddleOCR Recognition v4
 
 This example runs PPOCR_Rec with AMLNN. The full flow is:

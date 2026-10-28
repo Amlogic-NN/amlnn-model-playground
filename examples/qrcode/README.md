@@ -1,3 +1,5 @@
+**EN** | [CN](README.zh-CN.md)
+
 # qrcode
 
 This example runs QR code detection and decoding with AMLNN.
