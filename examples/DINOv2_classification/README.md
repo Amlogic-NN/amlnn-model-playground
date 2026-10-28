@@ -59,13 +59,12 @@ The preprocessing, inference, and postprocessing implementation in this example 
 
 Download the prepared DINOv2 backbone and linear classifier ONNX models:
 
-### [Download DINOv2 Backbone ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_backbone_sim.onnx)
-
-### [Download DINOv2 Linear Classification ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_linear4_head_sim.onnx)
+- [Download DINOv2 Backbone ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_backbone_sim.onnx)
+- [Download DINOv2 Linear Classification ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_linear4_head_sim.onnx)
 
 Download the ImageNet class names:
 
-### [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 Place the downloaded models under `examples/DINOv2_classification/model/` and the labels file under `examples/DINOv2_classification/input/`.
 

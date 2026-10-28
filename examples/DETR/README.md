@@ -53,7 +53,7 @@ The model preprocessing and postprocessing code in this example was partially ge
 
 Download the prepared ONNX model and put it under `examples/DETR/model/`:
 
-### [Download DETR ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/detr/detr.onnx)
+- [Download DETR ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/detr/detr.onnx)
 
 Expected path:
 

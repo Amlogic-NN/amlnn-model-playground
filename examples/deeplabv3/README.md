@@ -38,7 +38,7 @@ The model pre-processing and post-processing code in this example was partially 
 
 Download the prepared ONNX model and put it under `examples/deeplabv3/model/`:
 
-### [Download DeepLabV3 ONNX file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/deeplabv3/deeplabv3_mobilenet_v3_sim.onnx)
+- [Download DeepLabV3 ONNX file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/deeplabv3/deeplabv3_mobilenet_v3_sim.onnx)
 
 Expected path:
 

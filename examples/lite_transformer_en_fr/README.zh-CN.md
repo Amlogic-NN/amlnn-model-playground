@@ -38,11 +38,11 @@ examples/lite_transformer_en_fr/
 
 下载已准备好的 Lite Transformer 英译法 ONNX 模型：
 
-### [在此下载 Lite Transformer ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/lite_transformer_en_fr.onnx)
+- [在此下载 Lite Transformer ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/lite_transformer_en_fr.onnx)
 
 下载所需的词表和 BPE 资源：
 
-### [在此下载 Lite Transformer assets.zip！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/assets.zip)
+- [在此下载 Lite Transformer assets.zip！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/assets.zip)
 
 将下载的 ONNX 模型放到 `examples/lite_transformer_en_fr/model/` 下，并将资源解压到 `examples/lite_transformer_en_fr/assets/` 下。
 

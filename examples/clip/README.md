@@ -58,9 +58,9 @@ The model pre-processing and post-processing code in this example was partially 
 
 Download the prepared models and tokenizer:
 
-### [Text ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/text_model.onnx)
-### [Image ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx)
-### [CLIP Tokenizer zip](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/clip_tokenizer.zip)
+- [Text ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/text_model.onnx)
+- [Image ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx)
+- [CLIP Tokenizer zip](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/clip_tokenizer.zip)
 
 Place the ONNX models under `examples/clip/model/` and extract the tokenizer under `examples/clip/tokenizer/`.
 

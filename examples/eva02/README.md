@@ -58,11 +58,11 @@ Parts of the model preprocessing and postprocessing code in this example were de
 
 Download the prepared EVA02 ONNX model:
 
-### [Download EVA02 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/EVA02/eva02_base_sim.onnx)
+- [Download EVA02 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/EVA02/eva02_base_sim.onnx)
 
 Download the ImageNet class names:
 
-### [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 Place the downloaded ONNX model under `examples/eva02/model/` and the labels file under `examples/eva02/input/`.
 

@@ -82,6 +82,7 @@ AMLNN_HOME=/path/to/amlnn-toolkit ./build-android.sh -a arm64-v8a
 ```text
 examples/qrcode/cpp/build/android/qr_demo
 ```
+
 ### 在设备上运行
 
 推送文件：

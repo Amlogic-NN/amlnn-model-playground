@@ -35,7 +35,7 @@ The model pre-processing and post-processing code in this example was partially 
 
 Download the prepared ONNX model:
 
-### [Download PaddleOCR Detection v4 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppocr_det_v4/ppocr_det_static.onnx)
+- [Download PaddleOCR Detection v4 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppocr_det_v4/ppocr_det_static.onnx)
 
 Place the downloaded model under:
 

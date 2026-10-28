@@ -38,7 +38,7 @@ BlazePose 检测与关键点架构及预训练权重最初来自 [Google 的 Med
 下载准备好的 TFLite 模型，放到 `examples/blazepose_detect/model/` 目录下：
 
 
-### [点此下载 Blazepose Detect TFLite 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_detect/pose_detection_float32.tflite)
+- [点此下载 Blazepose Detect TFLite 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_detect/pose_detection_float32.tflite)
 
 
 预期路径：
@@ -80,6 +80,7 @@ python export_adla.py \
 ```text
 examples/blazepose_detect/model/pose_detection_float32_w8a8.adla
 ```
+
 ## 3. 运行 Python 示例
 
 **前置条件：**
@@ -101,6 +102,7 @@ python blazepose_detect_inference.py \
     --nms 0.3
 ```
 参数说明：
+
 | 参数              | 说明                                                         |
 | ----------------- | ------------------------------------------------------------ |
 | `--adla` | 编译后的 `.adla` 格式检测模型的路径。 |

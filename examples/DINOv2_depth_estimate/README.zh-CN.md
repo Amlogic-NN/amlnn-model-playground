@@ -58,9 +58,8 @@ examples/DINOv2_depth_estimation/
 
 下载已准备好的 DINOv2 主干和 NYU DPT 深度头 ONNX 模型：
 
-### [点此下载 DINOv2 主干 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_backbone_sim.onnx)
-
-### [点此下载 DINOv2 NYU DPT ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_nyu_dpthead_sim.onnx)
+- [点此下载 DINOv2 主干 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_backbone_sim.onnx)
+- [点此下载 DINOv2 NYU DPT ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_nyu_dpthead_sim.onnx)
 
 将下载的 ONNX 模型放到 `examples/DINOv2_depth_estimation/model/` 目录下。
 

@@ -70,7 +70,7 @@ examples/retinaface/model/retinaface_resnet50.onnx
 
 Download the prepared ONNX model:
 
-### [Download RetinaFace ResNet-50 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/retinaface/retinaface_resnet50.onnx)
+- [Download RetinaFace ResNet-50 ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/retinaface/retinaface_resnet50.onnx)
 
 Place the downloaded model under:
 

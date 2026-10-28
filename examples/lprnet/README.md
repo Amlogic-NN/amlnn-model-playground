@@ -34,7 +34,7 @@ The model pre-processing and post-processing code in this example was partially 
 
 Download the prepared ONNX model:
 
-### [Download LPRNet ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/LPRNet/lprnet.onnx)
+- [Download LPRNet ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/LPRNet/lprnet.onnx)
 
 Place the downloaded model under:
 

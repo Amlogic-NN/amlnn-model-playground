@@ -38,7 +38,7 @@ The model pre-processing, post-processing, and conversion code in this example w
 Download the prepared TFLite model and put it under `examples/blazepose_detect/model/`:
 
 
-### [Download Blazepose Detect TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_detect/pose_detection_float32.tflite)
+- [Download Blazepose Detect TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_detect/pose_detection_float32.tflite)
 
 
 Expected path:
@@ -80,6 +80,7 @@ After conversion, the expected model path is:
 ```text
 examples/blazepose_detect/model/pose_detection_float32_w8a8.adla
 ```
+
 ## 3. Run Python Demo
 
 **Prerequisites:**
@@ -101,6 +102,7 @@ python blazepose_detect_inference.py \
     --nms 0.3
 ```
 Argument Descriptions:
+
 | Argument         | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
 | `--adla` | The file path to the compiled detector model in `.adla` format. |

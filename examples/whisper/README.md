@@ -64,11 +64,9 @@ The model preprocessing and postprocessing code in this example was partially ge
 
 Download the prepared Whisper encoder and decoder ONNX models and tokenizer files:
 
-### [Download Whisper Encoder ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_encoder_static_sim.onnx)
-
-### [Download Whisper Decoder ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_decoder_static_sim.onnx)
-
-### [Download Whisper Tokenizer zip here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_tokenizer.zip)
+- [Download Whisper Encoder ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_encoder_static_sim.onnx)
+- [Download Whisper Decoder ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_decoder_static_sim.onnx)
+- [Download Whisper Tokenizer zip here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_tokenizer.zip)
 
 Place the downloaded ONNX models under:
 

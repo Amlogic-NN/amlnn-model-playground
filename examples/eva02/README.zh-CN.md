@@ -46,11 +46,11 @@ examples/eva02/
 
 下载已准备好的 EVA02 ONNX 模型：
 
-### [点此下载 EVA02 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/EVA02/eva02_base_sim.onnx)
+- [点此下载 EVA02 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/EVA02/eva02_base_sim.onnx)
 
 下载 ImageNet 类别名称：
 
-### [点此下载 ImageNet 标签！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [点此下载 ImageNet 标签！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 将下载的 ONNX 模型放到 `examples/eva02/model/` 下，将标签文件放到 `examples/eva02/input/` 下。
 

@@ -39,7 +39,7 @@ examples/wav2vec/
 
 下载预先准备好的 ADLA 模型：
 
-### [在此下载 Wav2Vec2 ADLA 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/wav2vec2/wav2vec2_base_960h_20s.adla)
+- [在此下载 Wav2Vec2 ADLA 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/wav2vec2/wav2vec2_base_960h_20s.adla)
 
 将下载的模型放到以下路径：
 

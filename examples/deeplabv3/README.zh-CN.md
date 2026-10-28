@@ -38,7 +38,7 @@ examples/deeplabv3/
 
 下载准备好的 ONNX 模型，并将其放到 `examples/deeplabv3/model/` 下：
 
-### [在此下载 DeepLabV3 ONNX 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/deeplabv3/deeplabv3_mobilenet_v3_sim.onnx)
+- [在此下载 DeepLabV3 ONNX 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/deeplabv3/deeplabv3_mobilenet_v3_sim.onnx)
 
 预期路径：
 

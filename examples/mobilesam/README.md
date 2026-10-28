@@ -37,15 +37,13 @@ MobileSAM models are provided for both `448x448` and `1024x1024` input resolutio
 
 ### 448x448
 
-### [Download 448x448 encoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_encoder_448.onnx)
-
-### [Download 448x448 decoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_decoder_448_no_post_p2.onnx)
+- [Download 448x448 encoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_encoder_448.onnx)
+- [Download 448x448 decoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_decoder_448_no_post_p2.onnx)
 
 ### 1024x1024
 
-### [Download 1024x1024 encoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_encoder.onnx)
-
-### [Download 1024x1024 decoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_decoder_no_post_p2.onnx)
+- [Download 1024x1024 encoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_encoder.onnx)
+- [Download 1024x1024 decoder ONNX here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_decoder_no_post_p2.onnx)
 
 Place the downloaded ONNX models under `examples/mobilesam/model/`.
 

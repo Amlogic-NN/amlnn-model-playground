@@ -35,7 +35,7 @@ examples/ppseg/
 
 下载已准备好的 ONNX 模型：
 
-### [在此下载 PP-LiteSeg ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppseg/pp_liteseg.onnx)
+- [在此下载 PP-LiteSeg ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppseg/pp_liteseg.onnx)
 
 将下载的模型放到以下位置：
 

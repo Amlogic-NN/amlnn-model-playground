@@ -51,7 +51,7 @@ examples/DETR/
 
 下载准备好的 ONNX 模型，放到 `examples/DETR/model/` 目录下：
 
-### [点此下载 DETR ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/detr/detr.onnx)
+- [点此下载 DETR ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/detr/detr.onnx)
 
 预期路径：
 

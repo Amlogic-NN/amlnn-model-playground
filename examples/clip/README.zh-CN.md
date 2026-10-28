@@ -51,9 +51,9 @@ examples/clip/
 
 下载准备好的模型和 tokenizer：
 
-### [文本 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/text_model.onnx)
-### [图像 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx)
-### [CLIP Tokenizer 压缩包](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/clip_tokenizer.zip)
+- [文本 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/text_model.onnx)
+- [图像 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/vision_model.onnx)
+- [CLIP Tokenizer 压缩包](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/clip/clip_tokenizer.zip)
 
 将 ONNX 模型放到 `examples/clip/model/` 下，并将 tokenizer 解压到 `examples/clip/tokenizer/` 下。
 

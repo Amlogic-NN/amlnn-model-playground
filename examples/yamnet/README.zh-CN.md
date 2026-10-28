@@ -38,7 +38,7 @@ YAMNet 的架构与预训练权重最初来自官方 [TensorFlow YAMNet 仓库](
 
 下载已准备好的 ONNX 模型：
 
-### [在此下载 YAMNet ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/yamnet/yamnet.onnx)
+- [在此下载 YAMNet ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/yamnet/yamnet.onnx)
 
 将下载的模型放到以下路径：
 

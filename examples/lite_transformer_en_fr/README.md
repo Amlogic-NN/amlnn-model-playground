@@ -38,11 +38,11 @@ The model preprocessing and postprocessing code in this example was partially ge
 
 Download the prepared Lite Transformer English-to-French ONNX model:
 
-### [Download Lite Transformer ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/lite_transformer_en_fr.onnx)
+- [Download Lite Transformer ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/lite_transformer_en_fr.onnx)
 
 Download the required vocabulary and BPE assets:
 
-### [Download Lite Transformer assets.zip here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/assets.zip)
+- [Download Lite Transformer assets.zip here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/Lite_transformer/assets.zip)
 
 Place the downloaded ONNX model under `examples/lite_transformer_en_fr/model/` and extract the assets under `examples/lite_transformer_en_fr/assets/`.
 

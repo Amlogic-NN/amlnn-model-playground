@@ -74,7 +74,7 @@ The YOLOv8 inference demo supports standard image files as well as raw image and
 | `.bin`                          | Final preprocessed model input tensor stored in raw binary form. Passed directly to AMLNN inference without preprocessing. |
 | `.qtxt`                         | Final preprocessed model input tensor stored as text. Passed directly to AMLNN inference without preprocessing.            |
 
-#### Standard Image Inputs
+### Standard Image Inputs
 
 Standard image files follow the normal YOLOv8 preprocessing flow:
 
@@ -116,7 +116,7 @@ The input flow is:
 > **Note:** The `.txt` file must already contain the expected number of pixels for the model input resolution. It should not include a shape header. If the number of values does not match the expected `H x W x 3` size, the input is skipped.
 
 
-#### Direct `.bin` and `.qtxt` Model Inputs
+### Direct `.bin` and `.qtxt` Model Inputs
 
 The `.bin` and `.qtxt` formats contain the **final model input tensor after preprocessing and quantization**.
 

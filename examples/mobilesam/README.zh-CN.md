@@ -37,15 +37,13 @@ MobileSAM 模型提供 `448x448` 和 `1024x1024` 两种输入分辨率版本。
 
 ### 448x448
 
-### [在此下载 448x448 编码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_encoder_448.onnx)
-
-### [在此下载 448x448 解码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_decoder_448_no_post_p2.onnx)
+- [在此下载 448x448 编码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_encoder_448.onnx)
+- [在此下载 448x448 解码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/448/mobile_sam_decoder_448_no_post_p2.onnx)
 
 ### 1024x1024
 
-### [在此下载 1024x1024 编码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_encoder.onnx)
-
-### [在此下载 1024x1024 解码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_decoder_no_post_p2.onnx)
+- [在此下载 1024x1024 编码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_encoder.onnx)
+- [在此下载 1024x1024 解码器 ONNX！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/MobileSAM/1024/mobile_sam_decoder_no_post_p2.onnx)
 
 将下载的 ONNX 模型放到 `examples/mobilesam/model/` 目录下。
 

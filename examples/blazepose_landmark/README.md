@@ -37,7 +37,7 @@ The model pre-processing, post-processing, and conversion code in this example w
 
 Download the prepared TFLite model and put it under `examples/blazepose_landmark/model/`:
 
-### [Download Blazepose Landmark TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_landmark/pose_landmark_full_float32.tflite)
+- [Download Blazepose Landmark TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_landmark/pose_landmark_full_float32.tflite)
 
 Expected path:
 

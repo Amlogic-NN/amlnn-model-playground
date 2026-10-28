@@ -52,11 +52,9 @@ examples/whisper/
 
 下载已准备好的 Whisper 编码器和解码器 ONNX 模型以及 tokenizer 文件：
 
-### [点此下载 Whisper 编码器 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_encoder_static_sim.onnx)
-
-### [点此下载 Whisper 解码器 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_decoder_static_sim.onnx)
-
-### [点此下载 Whisper Tokenizer 压缩包！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_tokenizer.zip)
+- [点此下载 Whisper 编码器 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_encoder_static_sim.onnx)
+- [点此下载 Whisper 解码器 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_decoder_static_sim.onnx)
+- [点此下载 Whisper Tokenizer 压缩包！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/whisper/whisper_tokenizer.zip)
 
 将下载的 ONNX 模型放到以下路径：
 

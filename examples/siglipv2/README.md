@@ -35,9 +35,9 @@ The model pre-processing and post-processing code in this example was partially 
 
 Download the prepared models and tokenizer:
 
-### [Text encoder ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_text_encoder_sim.onnx)
-### [Image encoder ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_vision_encoder_sim.onnx)
-### [Siglipv2 Tokenizer zip](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip_tokenizer.zip)
+- [Text encoder ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_text_encoder_sim.onnx)
+- [Image encoder ONNX model](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_vision_encoder_sim.onnx)
+- [Siglipv2 Tokenizer zip](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip_tokenizer.zip)
 
 Place the ONNX models under `examples/siglipv2/model/` and extract the tokenizer under `examples/siglipv2/tokenizer/`.
 

@@ -39,7 +39,7 @@ Parts of the model preprocessing and postprocessing code in this example were de
 
 Download the prepared ADLA model:
 
-### [Download Wav2Vec2 ADLA model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/wav2vec2/wav2vec2_base_960h_20s.adla)
+- [Download Wav2Vec2 ADLA model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/wav2vec2/wav2vec2_base_960h_20s.adla)
 
 Place the downloaded model under:
 

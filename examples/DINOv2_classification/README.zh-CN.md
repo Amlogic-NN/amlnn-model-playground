@@ -57,13 +57,12 @@ examples/DINOv2_classification/
 
 下载准备好的 DINOv2 主干网络和线性分类器 ONNX 模型：
 
-### [点此下载 DINOv2 主干网络 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_backbone_sim.onnx)
-
-### [点此下载 DINOv2 线性分类 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_linear4_head_sim.onnx)
+- [点此下载 DINOv2 主干网络 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_backbone_sim.onnx)
+- [点此下载 DINOv2 线性分类 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_lc/dinov2_vits14_linear4_head_sim.onnx)
 
 下载 ImageNet 类别名称：
 
-### [点此下载 ImageNet 标签！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [点此下载 ImageNet 标签！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 将下载的模型放到 `examples/DINOv2_classification/model/` 下，将标签文件放到 `examples/DINOv2_classification/input/` 下。
 

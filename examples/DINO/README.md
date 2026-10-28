@@ -52,13 +52,12 @@ The model preprocessing and postprocessing code in this example was partially ge
 
 Download the prepared DINO backbone and linear classifier ONNX models:
 
-### [Download DINO Backbone ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dino/dino_backbone.onnx)
-
-### [Download DINO Linear Classification ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dino/dino_linear.onnx)
+- [Download DINO Backbone ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dino/dino_backbone.onnx)
+- [Download DINO Linear Classification ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dino/dino_linear.onnx)
 
 Download the ImageNet class names:
 
-### [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [Download ImageNet labels here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 Place the downloaded models under `examples/DINO/model/` and the labels file under `examples/DINO/input/`.
 

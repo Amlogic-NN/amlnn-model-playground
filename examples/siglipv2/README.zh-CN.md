@@ -35,9 +35,9 @@ examples/siglipv2/
 
 下载已准备好的模型和 tokenizer：
 
-### [文本编码器 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_text_encoder_sim.onnx)
-### [图像编码器 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_vision_encoder_sim.onnx)
-### [Siglipv2 Tokenizer 压缩包](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip_tokenizer.zip)
+- [文本编码器 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_text_encoder_sim.onnx)
+- [图像编码器 ONNX 模型](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip2_vision_encoder_sim.onnx)
+- [Siglipv2 Tokenizer 压缩包](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/siglipv2/siglip_tokenizer.zip)
 
 将 ONNX 模型放到 `examples/siglipv2/model/` 下，并将 tokenizer 解压到 `examples/siglipv2/tokenizer/` 下。
 

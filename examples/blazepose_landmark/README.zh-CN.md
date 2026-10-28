@@ -37,7 +37,7 @@ BlazePose 检测与关键点架构及预训练权重最初来自 [Google 的 Med
 
 下载预先准备好的 TFLite 模型，并放到 `examples/blazepose_landmark/model/` 下：
 
-### [在此下载 Blazepose Landmark TFLite 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_landmark/pose_landmark_full_float32.tflite)
+- [在此下载 Blazepose Landmark TFLite 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/blazepose_landmark/pose_landmark_full_float32.tflite)
 
 预期路径：
 

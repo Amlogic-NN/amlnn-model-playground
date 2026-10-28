@@ -32,7 +32,7 @@ Yoloe-v8s 模型由第三方提供，模型权重不在本仓库中分发。在�
 
 要正确识别检测到的目标，您需要该模型对应的专用标签文件。
 
-### [在此下载 `labels.txt`！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/yoloe/labels.txt)
+- [在此下载 `labels.txt`！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/yoloe/labels.txt)
 
 将下载的标签文件放到：
 

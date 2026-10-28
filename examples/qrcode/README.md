@@ -82,6 +82,7 @@ The executable is generated at:
 ```text
 examples/qrcode/cpp/build/android/qr_demo
 ```
+
 ### Run On Device
 
 Push files:

@@ -5,11 +5,10 @@
 This example runs Mobilenet with AMLNN. The full flow is:
 
 1. Prepare or download an ONNX/TFLite model.
-2. 
-3. Convert the ONNX/TFLite model to an ADLA model.
-4. Run the Python demo with the ADLA model.
-5. Run the C++ (Linux/Android) demo with the ADLA model.
-6. Check Classification results.
+2. Convert the ONNX/TFLite model to an ADLA model.
+3. Run the Python demo with the ADLA model.
+4. Run the C++ (Linux/Android) demo with the ADLA model.
+5. Check Classification results.
 
 ## Directory Layout
 
@@ -62,7 +61,7 @@ examples/mobilenet/model/mobilenet_v2.onnx
 
 Download the prepared quantized TFLite model and put it under `examples/mobilenet/model/`:
 
-### [Download MobileNetV2 TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/mobilenet_v2_1.0_224_quant.tflite)
+- [Download MobileNetV2 TFLite file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/mobilenet_v2_1.0_224_quant.tflite)
 
 Expected path:
 
@@ -74,7 +73,7 @@ examples/mobilenet/model/mobilenet_v2_1.0_224_quant.tflite
 
 To identify the classification results, download the label file associated with the model:
 
-### [Download `labels.txt` here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [Download `labels.txt` here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 Place the downloaded label file at:
 
@@ -100,7 +99,7 @@ python export_adla.py \
 | `--model`           | Path to the input `.onnx` or `.tflite` model.                                                                                            |
 | `--dataset-path`    | (Optional) Path to a `.txt` file containing the input paths used for quantization calibration. Required for `w8a8` and `w8a16 (i16)`.[1] |
 | `--target-platform` | Target platform ID. See the full list of supported platforms [**HERE**](../../docs/mapping.md).                                          |
-| `--output-dir` | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`. |                                   |
+| `--output-dir` | (Optional) Directory where the generated `.adla` model will be saved. Defaults to `../model`. |
 
 > **[1] Quantization dataset note**
 >

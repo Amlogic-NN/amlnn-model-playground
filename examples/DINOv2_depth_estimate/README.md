@@ -60,9 +60,8 @@ The preprocessing, inference, and postprocessing implementation in this example 
 
 Download the prepared DINOv2 backbone and NYU DPT depth-head ONNX models:
 
-### [Download DINOv2 Backbone ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_backbone_sim.onnx)
-
-### [Download DINOv2 NYU DPT ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_nyu_dpthead_sim.onnx)
+- [Download DINOv2 Backbone ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_backbone_sim.onnx)
+- [Download DINOv2 NYU DPT ONNX model here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/dinov2_dd/dinov2_vitb14_nyu_dpthead_sim.onnx)
 
 Place the downloaded ONNX models under `examples/DINOv2_depth_estimation/model/`.
 

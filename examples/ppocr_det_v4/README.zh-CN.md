@@ -35,7 +35,7 @@ examples/ppocr_det_v4/
 
 下载准备好的 ONNX 模型：
 
-### [点此下载 PaddleOCR Detection v4 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppocr_det_v4/ppocr_det_static.onnx)
+- [点此下载 PaddleOCR Detection v4 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/ppocr_det_v4/ppocr_det_static.onnx)
 
 将下载的模型放到以下路径：
 

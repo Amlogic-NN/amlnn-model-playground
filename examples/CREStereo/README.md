@@ -36,7 +36,7 @@ The model pre-processing and post-processing code in this example was partially 
 
 Download the prepared ADLA model and put it under `examples/CREstereo/model/`:
 
-### [Download CREStereo ADLA file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/CREstereo/crestereo_combined_iter2_240x320_sim.adla)
+- [Download CREStereo ADLA file here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/CREstereo/crestereo_combined_iter2_240x320_sim.adla)
 
 Expected path:
 

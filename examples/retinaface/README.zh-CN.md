@@ -68,7 +68,7 @@ examples/retinaface/model/retinaface_resnet50.onnx
 
 下载已准备好的 ONNX 模型：
 
-### [在此下载 RetinaFace ResNet-50 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/retinaface/retinaface_resnet50.onnx)
+- [在此下载 RetinaFace ResNet-50 ONNX 模型！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/retinaface/retinaface_resnet50.onnx)
 
 将下载的模型放到：
 

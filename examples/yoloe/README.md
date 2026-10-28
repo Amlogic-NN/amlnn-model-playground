@@ -32,7 +32,7 @@ The model pre-processing and post-processing code in this example was partially 
 
 To correctly identify the detected objects, you will need the specific label file associated with this model.
 
-### [Download `labels.txt` here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/yoloe/labels.txt)
+- [Download `labels.txt` here!](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/yoloe/labels.txt)
 
 Place the downloaded label file under:
 

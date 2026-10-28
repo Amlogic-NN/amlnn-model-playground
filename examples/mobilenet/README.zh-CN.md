@@ -5,11 +5,10 @@
 本示例使用 AMLNN 运行 MobileNet。完整流程如下：
 
 1. 准备或下载 ONNX/TFLite 模型。
-2. 
-3. 将 ONNX/TFLite 模型转换为 ADLA 模型。
-4. 使用 ADLA 模型运行 Python 示例。
-5. 使用 ADLA 模型运行 C++（Linux/Android）示例。
-6. 查看分类结果。
+2. 将 ONNX/TFLite 模型转换为 ADLA 模型。
+3. 使用 ADLA 模型运行 Python 示例。
+4. 使用 ADLA 模型运行 C++（Linux/Android）示例。
+5. 查看分类结果。
 
 ## 目录结构
 
@@ -62,7 +61,7 @@ examples/mobilenet/model/mobilenet_v2.onnx
 
 下载已准备好的量化 TFLite 模型，并将其放到 `examples/mobilenet/model/` 下：
 
-### [在此下载 MobileNetV2 TFLite 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/mobilenet_v2_1.0_224_quant.tflite)
+- [在此下载 MobileNetV2 TFLite 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/mobilenet_v2_1.0_224_quant.tflite)
 
 预期路径：
 
@@ -74,7 +73,7 @@ examples/mobilenet/model/mobilenet_v2_1.0_224_quant.tflite
 
 为了识别分类结果，请下载与该模型关联的标签文件：
 
-### [在此下载 `labels.txt`！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
+- [在此下载 `labels.txt`！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/mobilenet/labels.txt)
 
 将下载的标签文件放到：
 
@@ -100,7 +99,7 @@ python export_adla.py \
 | `--model`           | 输入的 `.onnx` 或 `.tflite` 模型路径。                                                                                                   |
 | `--dataset-path`    | （可选）包含量化校准所用输入路径的 `.txt` 文件路径。使用 `w8a8` 和 `w8a16 (i16)` 时必填。[1]                                             |
 | `--target-platform` | 目标平台 ID。完整的支持平台列表见[**此处**](../../docs/mapping.md)。                                                                     |
-| `--output-dir` | （可选）生成的 `.adla` 模型保存目录。默认为 `../model`。 |                                   |
+| `--output-dir` | （可选）生成的 `.adla` 模型保存目录。默认为 `../model`。 |
 
 > **[1] 量化数据集说明**
 >

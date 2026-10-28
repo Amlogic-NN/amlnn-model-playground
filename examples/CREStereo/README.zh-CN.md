@@ -36,7 +36,7 @@ examples/CREstereo/
 
 下载预先准备好的 ADLA 模型，并将其放到 `examples/CREstereo/model/` 目录下：
 
-### [在此下载 CREStereo ADLA 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/CREstereo/crestereo_combined_iter2_240x320_sim.adla)
+- [在此下载 CREStereo ADLA 文件！](https://pub-8378326bd0fe4b1d9312a3847f6316a2.r2.dev/model_zoo/CREstereo/crestereo_combined_iter2_240x320_sim.adla)
 
 期望路径：
 
