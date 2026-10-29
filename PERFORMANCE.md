@@ -14,7 +14,7 @@ Performance and accuracy evaluation data for models running on the Amlogic NPU p
 |                    | yolov8s                 | [1, 3, 640, 640]       | w8a8  | 42.33   | 42.77  | 83.08  |
 |                    | yolov8m                 | [1, 3, 640, 640]       | w8a8  | 19.67   | 19.82  | 35.30  |
 |                    | yolov8l                 | [1, 3, 640, 640]       | w8a8  | 10.53   | 10.12  | 18.37  |
-| yolov11            | yolov11n                | [1, 3, 640, 640]       | w8a8  | 41.14   | 41.48  | 62.24  |
+| yolov11            | yolov11n                | [1, 3, 640, 640]       | w8a8  | 57.15   | 77.64  | 246.06 |
 | yoloworld          | yoloworld(v8m)          | [1, 3, 480, 640]       | w8a8  | 19.38   | 19.04  | 35.30  |
 | yoloe              | yoloe                   | [1, 3, 288, 512]       | w8a8  | 53.9    | 37.8   | 59.03  |
 | yolox              | yolox_tiny              | [1, 3, 640, 640]       | w8a8  | 42.9    | 35.89  | 56.51  |
