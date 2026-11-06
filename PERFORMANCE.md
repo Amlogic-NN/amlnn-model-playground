@@ -21,7 +21,7 @@ Performance and accuracy evaluation data for models running on the Amlogic NPU p
 |                    | yolox_s                 | [1, 3, 640, 640]       | w8a8  | 38.25   | 38.59  | 92.22  |
 |                    | yolox_m                 | [1, 3, 640, 640]       | w8a8  | 20.23   | 19.74  | 37.61  |
 | retinaface         | retinaface_resnet50     | [1, 3, 640, 640]       | w8a8  | 21.46   | 22.08  | 35.62  |
-|                    | retinaface_mobile320    | [1, 3, 320, 320]       | int8  | /       | /      | 542.30 |
+|                    | retinaface_mobile320    | [1, 3, 320, 320]       | w8a8  | 341.99  | 305.89 | 542.30 |
 | ppocr-det          | paddleocrv4-det         | [1, 3, 640, 640]       | w8a8  | 37.66   | 38.85  | 99.80  |
 | blazepose_detect   | blazepose_detection     | [1, 3, 224, 224]       | w8a8  | 476.29  | 461.74 | 572.74 |
 | blazepose_landmark | blazepose_landmark_full | [1, 3, 256, 256]       | w8a8  | 84.59   | 70.31  | 328.41 |
